@@ -1,0 +1,31 @@
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Build outputs
+bin/
+obj/
+
+# NuGet
+packages/
+
+# Windows junk
+desktop.ini
+Thumbs.db
+
+# Zone identifier junk
+*_Zone.Identifier*
+
+# Publish / runtime outputs
+publish/
+*.exe
+*.dll
+*.pdb
+*.runtimeconfig.json
+*.deps.json
+
+# OS / misc
+*.log

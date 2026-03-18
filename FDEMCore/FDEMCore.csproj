@@ -1,0 +1,30 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net5.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="Contact\FToFMatrixContinuumElasticFiberSpring.cs" />
+    <Compile Remove="Contact\FToFMatrixContinuumElasticFiberSpring_Damage.cs" />
+    <Compile Remove="Contact\FToFMatrixContinuumSpring.cs" />
+    <Compile Remove="Contact\MatrixModels\Matrix_ElasticFiber.cs" />
+    <Compile Remove="Contact\MatrixModels\Matrix_ElasticFiber_Coupled.cs" />
+    <Compile Remove="Contact\MatrixModels\Matrix_ElasticFiber_Damage.cs" />
+    <Compile Remove="Contact\MatrixModels\Matrix_ElasticFiber_Damage_Section.cs" />
+    <Compile Remove="Contact\MatrixModels\Matrix_RigidFibers.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Remove="Contact\desktop.ini" />
+    <None Remove="Contact\FailureTheories\desktop.ini" />
+    <None Remove="Contact\MatrixModels\desktop.ini" />
+    <None Remove="desktop.ini" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Delaunator" Version="1.0.11" />
+    <PackageReference Include="StapletonMathPackage" Version="1.3.4" />
+  </ItemGroup>
+
+</Project>

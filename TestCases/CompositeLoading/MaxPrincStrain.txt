@@ -1,0 +1,98 @@
+** Fiber DEM Analysis Input File
+** Scott Stapleton
+** Two Lines
+**________________________________________________________________
+**
+*ScaleFactors
+**
+Escale	1.0		Scale Factor for the fiber modulus
+Mscale	1.0		Scale Factor for the fiber mass
+**
+**________________________________________________________________
+**
+*Fiber
+**
+E1	276000.0		E axial (MPa)
+E2	19500.0		E transv(MPa)
+nu12	0.28		Poissons ratio
+nu23	0.28		Poissons ratio
+G12	107812.5		Shear Modulus (MPa)
+r	3.50		radius of fiber (um)
+l	1.00		length of fibers (um)
+linDens	6.810000e-08	linear density of a fiber (mg/um)
+dGlobal	1.0		global damping (1=critical of contact damping)
+**
+**________________________________________________________________
+**
+*Contact
+**
+dCOF	0.35		danymic coefficient of friction
+sCOF	0.35		static coefficient of friction
+dCon	0.0		contact damping factor (1=critical damping)
+Kn/Kt	1.33		normal stiffness over tangent stiffness for contact
+**
+**________________________________________________________________
+**
+*Matrix
+**
+EMat	2482.0		matrix stiffness (MPa)
+nuMat	0.37		matrix poissons ratio
+dMat	1.0		damping coefficient factor (1-critical damping)
+nAnal	1		analysis number to start adding matrix
+charDis	0.01		distance from stress singularities to take integration
+Model	MatrixModel1
+MCons	10		for model 1: integration pts / 
+fCrit	MaxPrincStrainWithDamage	failure criteria:for Model1, MaxPrincStressZIntDNoDamage, MaxPrincStressWithDamage, MaxPrincStrainWithDamage
+fCons	15/0.02582594681/3.0		constants separated with comma required for the Failure Criteria
+** Models: Model0, Model1: (energy/strength/damageAcceleration)
+**
+**________________________________________________________________
+**
+*RVE
+**
+Vf	0.6		volume fraction of fibers to empty space
+pType	HexVf		Random, Hex, OutputFile
+nRows	4		number of rows (total fibers is nRows^2)
+nRep	1		number of repititions of the RVE
+**
+** Options for Random: MinSpacing, FPerSquare, Margin, ShowResults,
+** SaveResults, ConDamp, GlobDamp, IncrDamp, MaxSteps, UndampedSteps
+**________________________________________________________________
+**
+*Analysis
+**
+nAnaly	1		number of different load cycles
+** For each step:
+** Analysis Type: QuasiStaticAnalysis, ConstantVolFractionLoadAnalysis, RelaxationStepAnalysis, LoadStepAnalysis
+** Constants needed
+** change in strain for each cycle: 11, 22, 33, 12, 13, 23
+** QuasiStaticAnalysis: nLoadSteps, nRelaxSteps, nLoadingSteps, perKE
+** LoadStepAnalysis: nTimeSteps, nStepsToSkip, nStepsToSkipContact
+** LoadStepAnalysis: nTimeSteps, nStepsToSkip, nStepsToSkipContact
+** ConstantVolFractionLoadAnalysis:  nTimeSteps, nStepsToSkip, nStepsToSkipContact, totS, sComp, Vratio
+**
+**
+**
+aType1	ImplicitNumericalTangent1stLSAnalysis
+cons	100, 100, 0.00001, 20, 0.001		 nLoadSteps, nNewtRaphsonIterations, maxNRError, maxCrackIterations, NRSlopeDx
+dS	0.0000, 0.0200, 0.0000, 0.0000, 0.0000, 0.0000
+**
+**_______________________________________________________________
+**
+*Output
+**
+bAll	True
+b1st	False		Only output everything on the first specimen
+bSS	True		Outputs the stress vs Strain
+bPlotKE	False		Plot the kinetic energy of all time steps
+**
+**________________________________________________________________
+**
+*Experiment
+**
+expType	SingleRun	Analysis Type (RVESize, NTimeSteps,RVESizeAndNTS,SizProb)
+cons	NA	constants separated with comma required for the analysis type 6,8,10,14,
+**
+**________________________________________________________________
+**
+*END

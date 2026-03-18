@@ -1,0 +1,31 @@
+** FDEM RANDOM RVE GENERATOR
+** Scott Stapleton
+** University of Massachusetts Lowell
+**________________________________________________________________
+**
+**THESE HAVE TO BE IN ORDER!
+**
+r	3		radius of fiber (um)
+Vf	0.90		Fiber volume fraction
+nRows	4		number of rows (total fibers is nRows^2) 
+nRep	1		number of repititions of the RVE
+**
+**The rest of these are optional arguments: no order needed
+**
+MinSpacing	0.5
+FPerSquare	7
+Margin	0.61
+ConDamp	0.8
+GlobDamp	1.2
+MaxSteps	8000
+UndampedSteps	100
+SaveFinalPositions	True
+SaveResults	True
+**
+** Options: "MinSpacing", "FPerSquare", "Margin", "ShowResults", "SaveResults", 
+** "saveFinalPositionsWithoutProjections", "SaveFinalPositions", "ConDamp", "GlobDamp",
+** "IncrDamp", "MaxSteps", "UndampedSteps", "SpecifyNumberOfFibers", "isNRowsActuallyNFibers"
+** "MultipleRadii	r1/r2/r3/, %1/%2/%3, " to have fibers with multiple radii.
+** Separate option name and value with one tab.  Use True/False for booleans.
+**
+*END
