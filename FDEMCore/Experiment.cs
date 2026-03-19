@@ -185,19 +185,26 @@ namespace FDEMCore
 			RunSingleRunWrapper(1);
 		}
 
-		public static object DeepClone(object obj) 
-		{
-			object objResult = null;
-			using (MemoryStream  ms = new MemoryStream())
+			// TODO: This DeepClone method uses BinaryFormatter which is obsolete in .NET 10+
+			// This should be migrated to use System.Text.Json or another modern serialization approach
+			// For now, we're suppressing the warning to maintain compatibility during the initial .NET 10 upgrade
+			// See: https://aka.ms/binaryformatter for migration guidance
+		#pragma warning disable SYSLIB0011 // BinaryFormatter is obsolete
+			public static object DeepClone(object obj) 
 			{
-				BinaryFormatter  bf =   new BinaryFormatter();
-				bf.Serialize(ms, obj);
+				object objResult = null;
+				using (MemoryStream  ms = new MemoryStream())
+				{
+					BinaryFormatter  bf =   new BinaryFormatter();
+					bf.Serialize(ms, obj);
 
-				ms.Position = 0;
-				objResult = bf.Deserialize(ms);
+					ms.Position = 0;
+					objResult = bf.Deserialize(ms);
+				}
+				return objResult;
 			}
-			return objResult;
-		}
+		#pragma warning restore SYSLIB0011
+
 
 		#endregion
 
