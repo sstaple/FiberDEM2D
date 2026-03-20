@@ -108,8 +108,8 @@ namespace FxTMeshGenerator.Meshing
             double dMin_B = CalculateMinDistanceBetweenFiberAndOppositeBase(tDiff_BBase, t1_B, t3_B, fB, fC, fA);
             double dMin_C = CalculateMinDistanceBetweenFiberAndOppositeBase(tDiff_CBase, t1_C, t3_C, fC, fA, fB);
 
-            // Check for overlaps (using factor of 20 as in MATLAB)
-            const double overlapFactor = 20.0;
+            // Check for overlaps (using factor of 20 as in MATLAB).  Let's try using 2 for now and see if it helps
+            const double overlapFactor = 2.0;
             DoesFiberHaveOverlapWithTriad(fiberA, dMin_A, 0, overlapFactor);
             DoesFiberHaveOverlapWithTriad(fiberB, dMin_B, 1, overlapFactor);
             DoesFiberHaveOverlapWithTriad(fiberC, dMin_C, 2, overlapFactor);

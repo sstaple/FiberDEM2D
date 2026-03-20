@@ -355,59 +355,161 @@ namespace FxTMeshGenerator.Meshing
         /// Finds and fixes triangles where a fiber overlaps the triangle interior.
         /// This can happen in tightly packed configurations and requires retriangulation.
         /// </summary>
-        private void FindAndFixOverlappingTriads(List<Node> nodes, List<int[]> triangles, IReadOnlyList<Fiber> fibers, DebugOptions dOptions, int maxIterations = 5)
+        private void FindAndFixOverlappingTriads(List<Node> nodes, List<int[]> triangles, IReadOnlyList<Fiber> fibers, DebugOptions dOptions, int maxAttemptsPerPair = 5)
         {
-            int iteration = 0;
+            int totalIterations = 0;
             int swapCount = 0;
+
+            // Track how many times we've attempted to fix each triad pair to detect cycles
+            var triadPairAttempts = new Dictionary<(int, int), int>();
+            var skippedTriads = new HashSet<int>();
+
             bool foundOverlap;
 
             do
             {
                 foundOverlap = false;
-                iteration++;
+                totalIterations++;
 
                 // Recreate triads at the start of each iteration to reflect any swaps
                 var triads = CreateTriadsFromTriangles(triangles, nodes, fibers);
-                Console.WriteLine($"Iteration {iteration}: Created {triads.Count} triads for overlap checking");
+                Console.WriteLine($"\nIteration {totalIterations}: Checking {triads.Count} triads for overlaps");
 
                 for (int i = 0; i < triads.Count; i++)
                 {
                     if (triads[i].DetermineIfFibersOverlapTriad())
                     {
+                        // Check if we've already given up on this triad
+                        if (skippedTriads.Contains(triads[i].Number))
+                        {
+                            Console.WriteLine($"  Overlap in triad {triads[i].Number} (already skipped, continuing scan...)");
+                            continue; // Continue scanning for other overlaps
+                        }
+
                         foundOverlap = true;
                         Console.WriteLine($"  Overlap detected in triad {triads[i].Number}");
 
-                        bool swapped = Retriangulate(triads[i], triads, triangles, nodes);
+                        // Try to retriangulate and track which pair we're working with
+                        int otherTriadNumber = -1;
+                        bool swapped = RetriangulateAndTrackPair(triads[i], triads, triangles, nodes, out otherTriadNumber);
 
-                        if (swapped)
+                        if (swapped && otherTriadNumber != -1)
                         {
+                            // Track this swap attempt
+                            var pairKey = (Math.Min(triads[i].Number, otherTriadNumber), 
+                                          Math.Max(triads[i].Number, otherTriadNumber));
+
+                            if (!triadPairAttempts.ContainsKey(pairKey))
+                                triadPairAttempts[pairKey] = 0;
+
+                            triadPairAttempts[pairKey]++;
+
                             swapCount++;
-                            Console.WriteLine($"  -> Swap #{swapCount} performed, triangulation modified");
+                            Console.WriteLine($"  -> Swap #{swapCount} performed (attempt #{triadPairAttempts[pairKey]} for pair [{pairKey.Item1}, {pairKey.Item2}])");
+
+                            // Check if we've tried this pair too many times (cycle detected)
+                            if (triadPairAttempts[pairKey] >= maxAttemptsPerPair)
+                            {
+                                Console.WriteLine($"  -> GIVING UP on triads {pairKey.Item1} and {pairKey.Item2} after {maxAttemptsPerPair} attempts (likely stuck in cycle)");
+                                skippedTriads.Add(pairKey.Item1);
+                                skippedTriads.Add(pairKey.Item2);
+                            }
 
                             // Debug: Create VTK file after each swap
                             if (dOptions.Debug)
                             {
                                 CreateVTKFileFromTriangles(nodes, triangles, dOptions, 3000 + swapCount);
                             }
-                        }
-                        else
-                        {
-                            Console.WriteLine($"  -> No adjacent triad found for swap");
-                        }
 
-                        break; // Restart search with fresh triads after modifying triangulation
+                            break; // Restart search with fresh triads after modifying triangulation
+                        }
+                        else if (!swapped)
+                        {
+                            Console.WriteLine($"  -> No adjacent triad found for swap, skipping this triad");
+                            skippedTriads.Add(triads[i].Number);
+                            // Don't break - continue checking remaining triads
+                        }
                     }
                 }
 
-                if (iteration >= maxIterations)
+                // Safety limit on total iterations
+                if (totalIterations >= 100)
                 {
-                    Console.WriteLine($"Warning: Possible fiber/triad overlap after {maxIterations} iterations ({swapCount} swaps performed).");
+                    Console.WriteLine($"Warning: Reached maximum total iterations (100). Stopping overlap fixing.");
                     foundOverlap = false;
                 }
             }
             while (foundOverlap);
 
-            Console.WriteLine($"Overlap fixing complete: {swapCount} total swaps in {iteration} iterations");
+            // Final summary
+            Console.WriteLine($"\n=== Overlap fixing complete ===");
+            Console.WriteLine($"Total iterations: {totalIterations}");
+            Console.WriteLine($"Total swaps performed: {swapCount}");
+            Console.WriteLine($"Triad pairs skipped due to cycles: {triadPairAttempts.Count(kvp => kvp.Value >= maxAttemptsPerPair)}");
+
+            // Final scan to report all remaining overlaps
+            Console.WriteLine($"\n=== Final overlap scan ===");
+            var finalTriads = CreateTriadsFromTriangles(triangles, nodes, fibers);
+            int totalOverlaps = 0;
+            for (int i = 0; i < finalTriads.Count; i++)
+            {
+                if (finalTriads[i].DetermineIfFibersOverlapTriad())
+                {
+                    totalOverlaps++;
+                    Console.WriteLine($"  Overlap remains in triad {i}");
+                }
+            }
+            Console.WriteLine($"Total overlaps remaining: {totalOverlaps}");
+        }
+
+        /// <summary>
+        /// Retriangulates and returns the other triad number involved in the swap.
+        /// </summary>
+        private bool RetriangulateAndTrackPair(Triad overlappingTriad, List<Triad> allTriads, List<int[]> triangles, List<Node> nodes, out int otherTriadNumber)
+        {
+            otherTriadNumber = -1;
+
+            // Find which fibers don't overlap
+            int[] nonOverlapFiberIndices = Enumerable.Range(0, 3)
+                .Where(i => overlappingTriad.FibersWhichOverlapTriad[i] == 0)
+                .ToArray();
+
+            if (nonOverlapFiberIndices.Length != 2)
+                return false;
+
+            int overlapFiberIdx = Enumerable.Range(0, 3)
+                .First(i => overlappingTriad.FibersWhichOverlapTriad[i] != 0);
+
+            int edgeIdx = FindEdgeConnectingFibers(nonOverlapFiberIndices[0], nonOverlapFiberIndices[1]);
+
+            int[] nonOverlappingEdge = new[]
+            {
+                overlappingTriad.Edges[edgeIdx, 0],
+                overlappingTriad.Edges[edgeIdx, 1]
+            };
+
+            // Find the adjacent triad sharing this edge
+            foreach (var otherTriad in allTriads)
+            {
+                if (otherTriad.Number == overlappingTriad.Number)
+                    continue;
+
+                int[] otherTriadFibers = new[]
+                {
+                    otherTriad.Edges[0, 0],
+                    otherTriad.Edges[0, 1],
+                    otherTriad.Edges[1, 1]
+                }.Distinct().ToArray();
+
+                if (Triad.IsFiberPairInTriad(nonOverlappingEdge, otherTriadFibers))
+                {
+                    otherTriadNumber = otherTriad.Number;
+                    SwapTriangleDiagonal(overlappingTriad, otherTriad, overlapFiberIdx, triangles, nodes);
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         /// <summary>
@@ -466,6 +568,16 @@ namespace FxTMeshGenerator.Meshing
         /// </summary>
         private bool Retriangulate(Triad overlappingTriad, List<Triad> allTriads, List<int[]> triangles, List<Node> nodes)
         {
+            Console.WriteLine($"\n--- Retriangulating Triad {overlappingTriad.Number} ---");
+
+            // Get the triangle nodes to see actual positions
+            var tri = triangles[overlappingTriad.Number];
+            Console.WriteLine($"Triangle nodes: [{tri[0]}, {tri[1]}, {tri[2]}]");
+            Console.WriteLine($"  Node {tri[0]}: FiberId={nodes[tri[0]].FiberId}, Pos=({nodes[tri[0]].P.X:F3}, {nodes[tri[0]].P.Y:F3}), Offset={nodes[tri[0]].Offset}");
+            Console.WriteLine($"  Node {tri[1]}: FiberId={nodes[tri[1]].FiberId}, Pos=({nodes[tri[1]].P.X:F3}, {nodes[tri[1]].P.Y:F3}), Offset={nodes[tri[1]].Offset}");
+            Console.WriteLine($"  Node {tri[2]}: FiberId={nodes[tri[2]].FiberId}, Pos=({nodes[tri[2]].P.X:F3}, {nodes[tri[2]].P.Y:F3}), Offset={nodes[tri[2]].Offset}");
+
+            // ... rest of existing code
             // Find which fibers don't overlap
             int[] nonOverlapFiberIndices = Enumerable.Range(0, 3)
                 .Where(i => overlappingTriad.FibersWhichOverlapTriad[i] == 0)
@@ -598,25 +710,15 @@ namespace FxTMeshGenerator.Meshing
             var tri2 = triangles[triad2.Number];
 
             // Find which positions in each triangle to replace
-            // We need to find nodes with uniqueFiberInTriad1 and uniqueFiberInTriad2
-            // but they might be at wrong offsets currently, so find by FiberId first
-            int posToReplaceInTri1 = -1;
-            int posToReplaceInTri2 = -1;
+            //find the first non-unique fiber in T1
+            //Then, you will replace the other one in T2
+            int posToReplaceInTri1 = Enumerable.Range(0, 3).First(i => nodes[tri1[i]].FiberId != uniqueFiberInTriad1);
+            int fiberIdAtPosToReplaceInTri1 = nodes[tri1[posToReplaceInTri1]].FiberId.Value;
+            int posToReplaceInTri2 = Enumerable.Range(0, 3).First(i =>
+                nodes[tri2[i]].FiberId != uniqueFiberInTriad2 &&
+                nodes[tri2[i]].FiberId != fiberIdAtPosToReplaceInTri1);
 
-            for (int i = 0; i < 3; i++)
-            {
-                if (nodes[tri1[i]].FiberId == uniqueFiberInTriad1)
-                    posToReplaceInTri1 = i;
-                if (nodes[tri2[i]].FiberId == uniqueFiberInTriad2)
-                    posToReplaceInTri2 = i;
-            }
-
-            if (posToReplaceInTri1 == -1 || posToReplaceInTri2 == -1)
-            {
-                throw new InvalidOperationException("Could not find positions to swap in triangles");
-            }
-
-            // Get the node indices corresponding to the OTHER triad's unique fiber, matching offsets
+            // Get the NODE INDICES for the fibers we want to swap in (matching offsets)
             int nodeToSwapIntoTri1 = FindNodeIndexForFiberMatchingOffset(nodes, uniqueFiberInTriad2, tri1);
             int nodeToSwapIntoTri2 = FindNodeIndexForFiberMatchingOffset(nodes, uniqueFiberInTriad1, tri2);
 
