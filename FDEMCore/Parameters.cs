@@ -163,7 +163,7 @@ namespace FDEMCore
 	public class FiberParameters
 	{
 		#region Public Members
-
+		
 		public virtual double R
         {
 			get { return r; }
@@ -188,6 +188,7 @@ namespace FDEMCore
 		public double G12;
 		public double rho;
 		public double globalD;
+		public double[] GravityVector;
 		#endregion
 		public FiberParameters(FiberParameters fiberParamsToCopy)
 		{
@@ -201,6 +202,7 @@ namespace FDEMCore
 			G12 = fiberParamsToCopy.G12;
 			globalD = fiberParamsToCopy.globalD;
 			nu23 = fiberParamsToCopy.nu23;
+			GravityVector = fiberParamsToCopy.GravityVector;
 		}
 
 		public FiberParameters(double radius, double linearDensity, double length, double AxialModulus,

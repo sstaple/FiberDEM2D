@@ -43,7 +43,7 @@ namespace FxTMeshGenerator.IO
         {
             if (mesh is null) throw new ArgumentNullException(nameof(mesh));
 
-            using var sw = new StreamWriter(path);
+            using var sw = new StreamWriter(path + ".vtk");
             sw.WriteLine("# vtk DataFile Version 3.0");
             sw.WriteLine("FiberMeshGen output");
             sw.WriteLine("ASCII");
@@ -98,7 +98,7 @@ namespace FxTMeshGenerator.IO
         {
             if (mesh is null) throw new ArgumentNullException(nameof(mesh));
 
-            using var sw = new StreamWriter(path);
+            using var sw = new StreamWriter(path + ".vtk");
             sw.WriteLine("# vtk DataFile Version 3.0");
             sw.WriteLine("FxT Mesh output");
             sw.WriteLine("ASCII");

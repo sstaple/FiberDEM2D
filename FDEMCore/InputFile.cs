@@ -150,7 +150,16 @@ namespace FDEMCore
 							double rho = Convert.ToDouble(temp[1]);
 							temp = NextLine();
 							double dGlobal = Convert.ToDouble(temp[1]);
-							fiberParams = new FiberParameters(r, rho, l, E1, E2, nu12, nu23, G23, dGlobal);
+                            //if the next line is not "*..." then it is the gravity vector, otherwise it is the end of the fiber section
+							temp = NextLineEvenComments();
+                            fiberParams = new FiberParameters(r, rho, l, E1, E2, nu12, nu23, G23, dGlobal);
+                            if (!temp[0].Contains("*"))
+                            {
+                                string[] stemp = temp[1].Split(',');
+                                double[] gravityVector = new double[3] { Convert.ToDouble(stemp[0]), Convert.ToDouble(stemp[1]), Convert.ToDouble(stemp[2]) };
+								fiberParams.GravityVector = gravityVector;
+                            }
+                            
 							break;
 							#endregion
 						case "*Contact":
@@ -284,7 +293,6 @@ namespace FDEMCore
 									temp = NextLineEvenComments();
 								}
 							}
-
 
                             break;
 							#endregion

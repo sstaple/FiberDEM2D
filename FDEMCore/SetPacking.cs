@@ -1019,8 +1019,8 @@ namespace FDEMCore
                 else
                 {
 					lFiberPositions.Add(new double[] { fParams.l/2.0, Convert.ToDouble(temp[0]), Convert.ToDouble(temp[1]) });
-					lFiberParams.Add(fParams);
-					lFiberParams[lFiberParams.Count - 1].l = Convert.ToDouble(temp[2]);
+					lFiberParams.Add(new FiberParameters(fParams));
+					lFiberParams[lFiberParams.Count - 1].R = Convert.ToDouble(temp[2]);
 				}
 			}
 
@@ -1031,7 +1031,7 @@ namespace FDEMCore
 			bottomLeftBackCorner = new double[3] { Convert.ToDouble(temp[0]), Convert.ToDouble(temp[1]), Convert.ToDouble(temp[2]) };
 			width = Convert.ToDouble(temp[4]);
 			height = Convert.ToDouble(temp[5]);
-			boundary = new CellBoundary(new double[3] { fiberParams.l, width, height }, bottomLeftBackCorner);
+			boundary = new CellBoundary(new double[3] { fiberParams.l, width, height }, bottomLeftBackCorner, new double[6], new double[6], boundaryTypes);
 			cb = boundary;
 
 			dataRead.Close();

@@ -108,8 +108,7 @@ namespace FxTMeshGenerator.Tests
                 triangulationMesh,
                 fibers,
                 boundary,
-                ElementConfig.Simple,
-                vtkMeshPath);
+                ElementConfig.Simple);
 
             // Write the full mesh
             VtkLegacyWriter.WriteUnstructuredMesh(vtkMeshPath, feMesh);
@@ -177,6 +176,238 @@ namespace FxTMeshGenerator.Tests
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Test EvaluateQuadrilateralQuality with a simple square configuration of four fibers.
+        /// </summary>
+        [Test]
+        public void TestEvaluateQuadrilateralQuality_SimpleSquare()
+        {
+            // Arrange: Create a simple 2x2 square of four fibers
+            var fiberRadius = 0.5;
+            var spacing = 3.0;
+
+            var boundarySize = 10.0;
+            var ODimensions = new double[] { 1.0, boundarySize, boundarySize };
+            var boundary = new CellBoundary(ODimensions);
+
+            // Four fibers in a square pattern
+            var fiberPositions = new[]
+            {
+                (y: 3.0, z: 3.0),  // Bottom-left
+                (y: 6.0, z: 3.0),  // Bottom-right
+                (y: 6.0, z: 6.0),  // Top-right
+                (y: 3.0, z: 6.0)   // Top-left
+            };
+
+            var fibers = new List<Fiber>();
+            for (int i = 0; i < fiberPositions.Length; i++)
+            {
+                var fiberParams = new FiberParameters(fiberRadius, 1.0, 1.0, 0.5, 0.5, 0.3, 1.0);
+                var fiber = new Fiber(new double[] { 0.0, fiberPositions[i].y, fiberPositions[i].z }, fiberParams, boundary);
+                fibers.Add(fiber);
+            }
+
+            // Create triangulator and generate triangulation
+            var triangulator = new DelaunayTriangulator();
+            var triangulationMesh = triangulator.GenerateTriangulation(boundary, fibers, null);
+
+            // Act: Find a quadrilateral and evaluate it
+            var nodes = triangulationMesh.Nodes.ToList();
+            var trianglesList = triangulationMesh.Triangles.ToList();
+
+            // Convert triangles list to flat array (as used internally)
+            var triangles = new int[trianglesList.Count * 3];
+            for (int i = 0; i < trianglesList.Count; i++)
+            {
+                triangles[i * 3] = trianglesList[i][0];
+                triangles[i * 3 + 1] = trianglesList[i][1];
+                triangles[i * 3 + 2] = trianglesList[i][2];
+            }
+
+            // Find two adjacent triangles that share an edge
+            int tri1Idx = -1, tri2Idx = -1;
+            int[] sharedEdge = null;
+
+            for (int i = 0; i < trianglesList.Count; i++)
+            {
+                var tri1 = trianglesList[i];
+
+                // Skip if not all fiber nodes
+                if (!tri1.All(idx => nodes[idx].FiberId.HasValue))
+                    continue;
+
+                for (int j = i + 1; j < trianglesList.Count; j++)
+                {
+                    var tri2 = trianglesList[j];
+
+                    if (!tri2.All(idx => nodes[idx].FiberId.HasValue))
+                        continue;
+
+                    // Check for shared edge
+                    var shared = tri1.Intersect(tri2).ToArray();
+                    if (shared.Length == 2)
+                    {
+                        tri1Idx = i;
+                        tri2Idx = j;
+                        sharedEdge = shared;
+                        break;
+                    }
+                }
+
+                if (tri1Idx >= 0)
+                    break;
+            }
+
+            Assert.That(tri1Idx, Is.GreaterThanOrEqualTo(0), "Should find at least one pair of adjacent triangles");
+            Assert.That(tri2Idx, Is.GreaterThanOrEqualTo(0), "Should find at least one pair of adjacent triangles");
+            Assert.That(sharedEdge, Is.Not.Null, "Should find a shared edge");
+            Assert.That(sharedEdge.Length, Is.EqualTo(2), "Shared edge should have exactly 2 nodes");
+
+            // Use reflection to call the private method
+            var method = typeof(DelaunayTriangulator).GetMethod(
+                "EvaluateQuadrilateralQuality",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+            Assert.That(method, Is.Not.Null, "EvaluateQuadrilateralQuality method should exist");
+
+            var parameters = new object[] { tri1Idx, tri2Idx, nodes, triangles, fibers, null, sharedEdge };
+            var result = method.Invoke(triangulator, parameters);
+
+            // Extract quad from out parameter
+            int[] quad = (int[])parameters[5];
+
+            // Assert: Verify the result structure
+            Assert.That(result, Is.Not.Null, "Result should not be null");
+            Assert.That(quad, Is.Not.Null, "Quad should be populated");
+            Assert.That(quad.Length, Is.EqualTo(4), "Quad should have exactly 4 nodes");
+
+            // Extract inversions and quality ratio from the ValueTuple
+            var resultTuple = ((int inversions, double worstQualityRatio))result;
+
+            // For a well-formed square of fibers, we expect:
+            // - No inversions (or very few)
+            // - Reasonable quality ratio (not infinity or max value)
+            Console.WriteLine($"Inversions: {resultTuple.inversions}");
+            Console.WriteLine($"Worst Quality Ratio: {resultTuple.worstQualityRatio}");
+
+            Assert.That(resultTuple.worstQualityRatio, Is.LessThan(double.MaxValue), "Quality ratio should be finite");
+            Assert.That(resultTuple.worstQualityRatio, Is.GreaterThan(0), "Quality ratio should be positive");
+        }
+
+        /// <summary>
+        /// Test EvaluateQuadrilateralQuality with an inverted configuration where fibers overlap.
+        /// </summary>
+        [Test]
+        public void TestEvaluateQuadrilateralQuality_InvertedConfiguration()
+        {
+            // Arrange: Create a configuration that will produce inversions
+            var fiberRadius = 1.5; // Larger radius to increase chance of inversions
+
+            var boundarySize = 10.0;
+            var ODimensions = new double[] { 1.0, boundarySize, boundarySize };
+            var boundary = new CellBoundary(ODimensions);
+
+            // Four fibers in a diamond pattern (closer together)
+            var fiberPositions = new[]
+            {
+                (y: 5.0, z: 3.0),  // Bottom
+                (y: 7.0, z: 5.0),  // Right
+                (y: 5.0, z: 7.0),  // Top
+                (y: 3.0, z: 5.0)   // Left
+            };
+
+            var fibers = new List<Fiber>();
+            for (int i = 0; i < fiberPositions.Length; i++)
+            {
+                var fiberParams = new FiberParameters(fiberRadius, 1.0, 1.0, 0.5, 0.5, 0.3, 1.0);
+                var fiber = new Fiber(new double[] { 0.0, fiberPositions[i].y, fiberPositions[i].z }, fiberParams, boundary);
+                fibers.Add(fiber);
+            }
+
+            // Create triangulator and generate triangulation
+            var triangulator = new DelaunayTriangulator();
+            var debugOptions = new DebugOptions
+            {
+                Debug = true,
+                Directory = TestContext.CurrentContext.TestDirectory,
+                FileName = "InvertedConfig_Test"
+            };
+
+            var triangulationMesh = triangulator.GenerateTriangulation(boundary, fibers, debugOptions);
+
+            // Act: Find a quadrilateral and evaluate it
+            var nodes = triangulationMesh.Nodes.ToList();
+            var trianglesList = triangulationMesh.Triangles.ToList();
+
+            // Convert triangles list to flat array (as used internally)
+            var triangles = new int[trianglesList.Count * 3];
+            for (int i = 0; i < trianglesList.Count; i++)
+            {
+                triangles[i * 3] = trianglesList[i][0];
+                triangles[i * 3 + 1] = trianglesList[i][1];
+                triangles[i * 3 + 2] = trianglesList[i][2];
+            }
+
+            // Find two adjacent triangles
+            int tri1Idx = -1, tri2Idx = -1;
+            int[] sharedEdge = null;
+
+            for (int i = 0; i < trianglesList.Count; i++)
+            {
+                var tri1 = trianglesList[i];
+
+                if (!tri1.All(idx => nodes[idx].FiberId.HasValue))
+                    continue;
+
+                for (int j = i + 1; j < trianglesList.Count; j++)
+                {
+                    var tri2 = trianglesList[j];
+
+                    if (!tri2.All(idx => nodes[idx].FiberId.HasValue))
+                        continue;
+
+                    var shared = tri1.Intersect(tri2).ToArray();
+                    if (shared.Length == 2)
+                    {
+                        tri1Idx = i;
+                        tri2Idx = j;
+                        sharedEdge = shared;
+                        break;
+                    }
+                }
+
+                if (tri1Idx >= 0)
+                    break;
+            }
+
+            if (tri1Idx >= 0)
+            {
+                // Use reflection to call the private method
+                var method = typeof(DelaunayTriangulator).GetMethod(
+                    "EvaluateQuadrilateralQuality",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+                var parameters = new object[] { tri1Idx, tri2Idx, nodes, triangles, fibers, null, sharedEdge };
+                var result = method.Invoke(triangulator, parameters);
+
+                // Extract inversions and quality ratio from the ValueTuple
+                var resultTuple = ((int inversions, double worstQualityRatio))result;
+
+                Console.WriteLine($"Inversions detected: {resultTuple.inversions}");
+                Console.WriteLine($"Worst Quality Ratio: {resultTuple.worstQualityRatio}");
+
+                // With larger fibers and closer spacing, we expect some inversions
+                Assert.That(resultTuple.worstQualityRatio, Is.LessThan(double.MaxValue), "Quality ratio should be finite");
+
+                // Document the result - inversions might or might not occur depending on exact configuration
+                Console.WriteLine($"Test completed with {resultTuple.inversions} inversions");
+            }
+            else
+            {
+                Assert.Warn("Could not find adjacent fiber triangles - mesh might be too simple");
+            }
         }
 
     }

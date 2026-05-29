@@ -18,12 +18,8 @@ namespace FxTMeshGenerator.Meshing
         private int _elementIdCounter = 0;
         private const double NodeTolerance = 1e-10;
 
-        public FEMesh BuildMesh(
-            TriangulationMesh2D triangulation,
-            IReadOnlyList<Fiber> fibers,
-            CellBoundary boundary,
-            ElementConfig config,
-            string debugOutputPath = null)
+        public FEMesh BuildMesh(TriangulationMesh2D triangulation,IReadOnlyList<Fiber> fibers,
+            CellBoundary boundary,ElementConfig config, DebugOptions? dOptions = null)
         {
             // Reset state
             _globalNodes.Clear();
@@ -43,16 +39,16 @@ namespace FxTMeshGenerator.Meshing
             }
 
             // Write intermediate mesh: just interior triangles
-            if (debugOutputPath != null)
+            // Write final mesh: triangles + fiber + quads
+            if (dOptions != null && dOptions.Debug)
             {
-                var interiorTriMesh = new FEMesh(_globalNodes.ToList(), _elements.ToList(), 
+                var interiorTriMesh = new FEMesh(_globalNodes.ToList(), _elements.ToList(),
                     new List<(int, int)>(), new List<int>(), new List<int>());
-                IO.VtkLegacyWriter.WriteUnstructuredMesh(
-                    debugOutputPath.Replace(".vtk", "_mesh_tri.vtk"), interiorTriMesh);
+                IO.VtkLegacyWriter.WriteUnstructuredMesh(dOptions.GetDebugFilePath("triMesh"), interiorTriMesh);
             }
-
+            
             // Build fiber and matrix elements between adjacent triangles
-            BuildInteriorFiberMatrixElements(triangulation, fibers, config, debugOutputPath);
+            BuildInteriorFiberMatrixElements(triangulation, fibers, config, dOptions);
 
             // Build periodic node pairs
             var periodicPairs = BuildPeriodicNodePairs(triangulation, boundary);
@@ -298,24 +294,41 @@ namespace FxTMeshGenerator.Meshing
         {
             // When overlap is detected, use the vector pointing to one of the edges
             // rather than the bisector, to avoid the interior triangle overlapping the fiber
+            //
+            // This matches MATLAB's AdjustMidPointDueToOverlap logic:
+            // - vec1 corresponds to T_Unit (first edge angle)
+            // - vec2 corresponds to T_Unit + TAB_AC (second edge angle)
+            // - overlapIdx is 0-based (0, 1, 2) corresponding to MATLAB's 1-based (1, 2, 3)
+            // - currentIdx is 0-based (0, 1, 2) corresponding to MATLAB's idx (1, 2, 3)
 
-            // Logic based on MATLAB switch statement
             switch (overlapIdx)
             {
                 case 0:
-                    // Fiber 0 has overlap
-                    return currentIdx == 1 ? vec2 : vec1;
+                    // Fiber 0 overlaps (MATLAB case 1)
+                    if (currentIdx == 1)
+                        return vec1;  // MATLAB: idx==2 → T_Unit
+                    else if (currentIdx == 2)
+                        return vec2;  // MATLAB: idx==3 → T_Unit + TAB_AC
+                    break;
                 case 1:
-                    // Fiber 1 has overlap
-                    return currentIdx == 0 ? vec2 : vec1;
+                    // Fiber 1 overlaps (MATLAB case 2)
+                    if (currentIdx == 0)
+                        return vec2;  // MATLAB: idx==1 → T_Unit + TAB_AC
+                    else if (currentIdx == 2)
+                        return vec1;  // MATLAB: idx==3 → T_Unit
+                    break;
                 case 2:
-                    // Fiber 2 has overlap
-                    return currentIdx == 0 ? vec1 : vec2;
-                default:
-                    // Default: use bisector (shouldn't reach here)
-                    var bisector = new Point2D(vec1.X + vec2.X, vec1.Y + vec2.Y);
-                    return Normalize(bisector);
+                    // Fiber 2 overlaps (MATLAB case 3)
+                    if (currentIdx == 0)
+                        return vec1;  // MATLAB: idx==1 → T_Unit
+                    else if (currentIdx == 1)
+                        return vec2;  // MATLAB: idx==2 → T_Unit + TAB_AC
+                    break;
             }
+
+            // Default: use bisector (shouldn't reach here in normal operation)
+            var bisector = new Point2D(vec1.X + vec2.X, vec1.Y + vec2.Y);
+            return Normalize(bisector);
         }
 
         /// <summary>
@@ -353,7 +366,7 @@ namespace FxTMeshGenerator.Meshing
             TriangulationMesh2D triangulation,
             IReadOnlyList<Fiber> fibers,
             ElementConfig config,
-            string debugOutputPath = null)
+            DebugOptions? dOptions=null)
         {
             // Store which triangle elements we've already built (mapping from triangle index to built interior triangle nodes)
             var triangleElements = new Dictionary<int, Point2D[]>();
@@ -388,14 +401,8 @@ namespace FxTMeshGenerator.Meshing
                         var fiber = fibers[currentNode.FiberId.Value];
                         Point2D fiberCenter = currentNode.P;
 
-                        elementNodes[j] = CalculateFiberSurfacePoint(
-                            fiberCenter,
-                            fiber.Radius,
-                            otherNode1.P,
-                            otherNode2.P,
-                            overlapInfo[j],
-                            j,
-                            overlapInfo);
+                        elementNodes[j] = CalculateFiberSurfacePoint( fiberCenter, fiber.Radius, otherNode1.P, otherNode2.P, 
+                            overlapInfo[j], j,overlapInfo);
                     }
 
                     triangleElements[i] = elementNodes;
@@ -479,12 +486,11 @@ namespace FxTMeshGenerator.Meshing
             }
 
             // Write intermediate mesh: triangles + fiber elements (before quads)
-            if (debugOutputPath != null)
+            if (dOptions != null && dOptions.Debug)
             {
                 var triPlusFibMesh = new FEMesh(_globalNodes.ToList(), _elements.ToList(), 
                     new List<(int, int)>(), new List<int>(), new List<int>());
-                IO.VtkLegacyWriter.WriteUnstructuredMesh(
-                    debugOutputPath.Replace(".vtk", "_mesh_triPlusFib.vtk"), triPlusFibMesh);
+                IO.VtkLegacyWriter.WriteUnstructuredMesh(dOptions.GetDebugFilePath("triPlusFib"), triPlusFibMesh);
             }
 
             // Now build quad elements
@@ -494,12 +500,11 @@ namespace FxTMeshGenerator.Meshing
             }
 
             // Write final mesh: triangles + fiber + quads
-            if (debugOutputPath != null)
+            if (dOptions != null && dOptions.Debug)
             {
-                var fullMesh = new FEMesh(_globalNodes.ToList(), _elements.ToList(), 
+                var fullMesh = new FEMesh(_globalNodes.ToList(), _elements.ToList(),
                     new List<(int, int)>(), new List<int>(), new List<int>());
-                IO.VtkLegacyWriter.WriteUnstructuredMesh(
-                    debugOutputPath.Replace(".vtk", "_mesh_triPlusFibPlusQuad.vtk"), fullMesh);
+                IO.VtkLegacyWriter.WriteUnstructuredMesh(dOptions.GetDebugFilePath("AllMesh"), fullMesh);
             }
         }
 

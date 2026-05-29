@@ -24,6 +24,17 @@ namespace FxTMeshGenerator.Meshing
 
         public bool Debug { get; set; } = false;
 
+        public int Counter = 0;
+
+        public string GetDebugFilePath(string prefix)
+        {
+            if (!Debug)
+                throw new InvalidOperationException("Debug mode is not enabled.");
+            string filePath = Path.Combine(Directory, $"{FileName}_{prefix}_{Counter}");
+            Counter++;
+            return filePath;
+        }
+
     }
 }
 

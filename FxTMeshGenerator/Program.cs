@@ -10,12 +10,12 @@ using System.Globalization;
 
 namespace FxTMeshGenerator
 {
-    //I want this to either start by loading an ipnut file or a pack file.  If it's an input file, then I want to run the whole process of generating the mesh.  If it's a pack file, then I just want to load the mesh and write it out in the desired format.
+    //I want this to either start by loading an input file or a pack file.  If it's an input file, then I want to run the whole process of generating the mesh.  If it's a pack file, then I just want to load the mesh and write it out in the desired format.
     internal static class Program
     {
         static void Main(string[] args)
         {
-            args = new string[] { @"C:\Users\Scott_Stapleton\Downloads\RVE\V0p7YPeriodic.txt" }; //Work computer
+            args = new string[] { @"C:\Users\Scott_Stapleton\Downloads\RVE\Test2\V0p7YPeriodic.txt" }; //Work computer
             //args = new string[] { @"C:\Users\scott\Downloads\RVE\V0p7YPeriodic.txt" }; //Laptop computer
 
             //If no arguments are passed...
@@ -72,53 +72,35 @@ namespace FxTMeshGenerator
         public static RandomRVEGeneratorInputFile ReadFilePath(string path)
         {
 
-            string fileName = Path.GetFileName(path);
+            string fileName = Path.GetFileName(path); 
             string dirName = Path.GetDirectoryName(path);
             Stopwatch stopWatch = new Stopwatch();
             stopWatch.Start();
             RandomRVEGeneratorInputFile myInputFile = new RandomRVEGeneratorInputFile(fileName, dirName);
 
 
+            string fileNameNoExt = Path.GetFileNameWithoutExtension(path);
+            //For debugging, make and pass the DebugOptions to the triangulator and element builder.  This will cause them to write out debug files during their processes, which can be helpful for diagnosing issues with the triangulation and meshing.
+            Meshing.DebugOptions myDebugOptions = new Meshing.DebugOptions {Debug = true,Directory = dirName,
+                FileName = fileNameNoExt };
+
             try
             {
-
-                Console.WriteLine($"Found this file: {fileName}");
+                Console.WriteLine($"Found this file: {fileNameNoExt}");
 
                 myInputFile.Initiate();
 
-                Console.WriteLine($"Ran packing for: {fileName}");
-
-                //For debugging:
-                Meshing.DebugOptions myDebugOptions = new Meshing.DebugOptions
-                {
-                    Debug = true,
-                    Directory = dirName,
-                    FileName = fileName
-                };
+                Console.WriteLine($"Ran packing for: {fileNameNoExt}");
 
                 // Step 1: Generate Delaunay triangulation, and pass the debug options to enable debug output during triangulation
                 var triangulator = new DelaunayTriangulator();
-                var triangulation = triangulator.GenerateTriangulation(myInputFile.Packing.Boundary, myInputFile.Packing.LFibers, myDebugOptions);
+                var triangulation = triangulator.GenerateTriangulation(myInputFile.Packing.Boundary, myInputFile.Packing.LFibers, 
+                    myDebugOptions);
 
                 // Step 2: Build finite element mesh from triangulation
                 var elementBuilder = new ElementBuilder();
-
-                // Use mesh file name as debug output base path
-                string vtkMeshFileName = Path.Combine(dirName, Path.GetFileNameWithoutExtension(fileName) + "_mesh.vtk");
-
-                var femesh = elementBuilder.BuildMesh(
-                    triangulation, 
-                    myInputFile.Packing.LFibers, 
-                    myInputFile.Packing.Boundary,
-                    ElementConfig.Simple,
-                    vtkMeshFileName); // Pass debug output path
-
-                // Write triangulation for debugging
-                string vtkTriFileName = Path.Combine(dirName, Path.GetFileNameWithoutExtension(fileName) + "_tri.vtk");
-                VtkLegacyWriter.WriteUnstructuredGrid2D(vtkTriFileName, triangulation);
-
-                // Write final mesh
-                VtkLegacyWriter.WriteUnstructuredMesh(vtkMeshFileName, femesh);
+                var feMesh = elementBuilder.BuildMesh(triangulation,myInputFile.Packing.LFibers, myInputFile.Packing.Boundary,
+                    ElementConfig.Simple,myDebugOptions); // Pass debug output path
 
                 stopWatch.Stop();
                 TimeSpan ts = stopWatch.Elapsed;
@@ -127,13 +109,13 @@ namespace FxTMeshGenerator
                     ts.Hours, ts.Minutes, ts.Seconds,
                     ts.Milliseconds / 10);
 
-                Console.WriteLine($"Ran file: {fileName} in {elapsedTime}. I hope it was successful.");
+                Console.WriteLine($"Ran file: {fileNameNoExt} in {elapsedTime}. I hope it was successful.");
             }
             catch (Exception ex)
             {
                 Console.WriteLine(ex.ToString());
                 //Write an error file just to make it clear.
-                string errorFileName = Path.Combine(dirName, fileName + "_error.txt");
+                string errorFileName = Path.Combine(dirName, fileNameNoExt + "_error.txt");
                 StreamWriter dataWrite = new StreamWriter(errorFileName);
                 dataWrite.WriteLine(ex.ToString());
                 dataWrite.Close();

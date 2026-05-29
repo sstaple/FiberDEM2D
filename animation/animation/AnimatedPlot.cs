@@ -567,7 +567,7 @@ namespace Animation
 				UpdatePlotAndFrameNumber();
 				
 				Bitmap panelBMP = new Bitmap(pMainFrame.Width, pMainFrame.Height);
-				pMainFrame.DrawToBitmap(panelBMP, new Rectangle(0, 0, pMainFrame.Width, pMainFrame.Height ));
+				pMainFrame.DrawToBitmap(panelBMP, new Rectangle(0, 0, pMainFrame.Width, pMainFrame.Height));
 				
 				int w = pMainFrame.Width;
 				Bitmap plotBMP = myPane.GetImage();

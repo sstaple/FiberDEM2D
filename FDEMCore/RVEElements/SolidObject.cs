@@ -54,10 +54,13 @@ namespace FDEMCore
 		protected double netM;
 		protected double [] netF;
 
-		#endregion
+		protected bool hasGravity = false;
+		protected double[] gravityVector;
 
-		#region Public Members
-		public double Inertia {
+        #endregion
+
+        #region Public Members
+        public double Inertia {
 			get { return inertia; }
 			set {inertia = value;}
 		}
@@ -139,11 +142,17 @@ namespace FDEMCore
 			get { return netM; }
 		}
 
-		#endregion
+		public double[] GravityVector { 			
+			get { return gravityVector; }
+			set { gravityVector = value; 
+				hasGravity = true;
+            }
+        }
+        #endregion
 
-		#region Constructors
-		
-		public SolidObject(double[] initialPosition, double inMass, double inModulus1, double inModulus2, double inNu12, double inNu23, double inG12)
+        #region Constructors
+
+        public SolidObject(double[] initialPosition, double inMass, double inModulus1, double inModulus2, double inNu12, double inNu23, double inG12)
 		{
 			modulus1 = inModulus1;
 			modulus2 = inModulus2;
@@ -231,7 +240,12 @@ namespace FDEMCore
 
 		public virtual void UpdateAcceleration(){
 
-			SumAndClearForces();
+            //add gravity first if needed
+            if (hasGravity) { 
+				forces.Add(VectorMath.ScalarMultiply(mass, gravityVector)); 
+			}
+
+            SumAndClearForces();
 
 			double [] aTemp = VectorMath.ScalarMultiply(1.0 / mass, VectorMath.Subtract(netF, VectorMath.Add(VectorMath.ScalarMultiply(Cglobal, x[1]), VectorMath.ScalarMultiply(Kglobal, x[0]))));
 			double [] dA = VectorMath.Subtract(aTemp, x[2]);
