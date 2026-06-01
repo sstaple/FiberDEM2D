@@ -1,7 +1,11 @@
 using NUnit.Framework;
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using FxTMeshGenerator.Geometry;
 using FxTMeshGenerator.Meshing;
+using FxTMeshGenerator.Meshing.Elements;
+using FDEMCore;
 
 namespace FDEMTests
 {
@@ -186,6 +190,430 @@ namespace FDEMTests
                 angle += 2.0 * Math.PI;
             }
             return angle;
+        }
+
+        [Test]
+        public void BuildMesh_MixedTriangle_TwoFibersOneBoundary_ShouldGenerateTriangleWithCorrectNodeTypes()
+        {
+            // Arrange: Create a triangle with 2 fiber nodes and 1 boundary node
+            var boundary = CreateTestBoundary();
+            var fiberParams = CreateTestFiberParameters();
+
+            var fiber1 = new Fiber(new double[] { 0, 0, 0 }, fiberParams, boundary);
+            var fiber2 = new Fiber(new double[] { 1, 0, 0 }, fiberParams, boundary);
+            var fibers = new List<Fiber> { fiber1, fiber2 };
+
+            var boundaryPoint = new Point2D(0.5, 1.0);
+
+            // Create nodes for triangulation
+            var nodes = new List<Node>
+            {
+                new Node(new Point2D(0, 0), 0, NodeType.FiberCenter, (0, 0)),
+                new Node(new Point2D(1, 0), 1, NodeType.FiberCenter, (0, 0)),
+                new Node(boundaryPoint, null, NodeType.BoundaryPoint, (0, 0))
+            };
+
+            var triangles = new List<int[]> { new[] { 0, 1, 2 } };
+            var triangulation = new TriangulationMesh2D(nodes, triangles);
+
+            var config = new ElementConfig();
+            var builder = new ElementBuilder();
+
+            // Act
+            var mesh = builder.BuildMesh(triangulation, fibers, boundary, config);
+
+            // Assert
+            Assert.That(mesh.Elements.Count, Is.GreaterThan(0), "Should generate at least one element");
+
+            var triangleElements = mesh.Elements.Where(e => e is TriangleElement).ToList();
+            Assert.That(triangleElements.Count, Is.EqualTo(1), "Should generate exactly one triangle element");
+
+            // Verify that nodes exist in the mesh
+            Assert.That(mesh.GlobalNodes.Count, Is.GreaterThanOrEqualTo(3), "Should have at least 3 nodes");
+
+            // Check that at least one node is on a fiber surface (distance from fiber center ~ radius)
+            bool hasNodeOnFiber1Surface = mesh.GlobalNodes.Any(n => 
+                Math.Abs(MathHelper.CalcDistanceBetweenTwoPoints(n, new Point2D(0, 0)) - fiber1.Radius) < Tolerance);
+            bool hasNodeOnFiber2Surface = mesh.GlobalNodes.Any(n => 
+                Math.Abs(MathHelper.CalcDistanceBetweenTwoPoints(n, new Point2D(1, 0)) - fiber2.Radius) < Tolerance);
+
+            Assert.That(hasNodeOnFiber1Surface || hasNodeOnFiber2Surface, Is.True, 
+                "At least one node should be on a fiber surface");
+
+            // Check that the boundary point is in the mesh (exact match)
+            bool hasBoundaryPoint = mesh.GlobalNodes.Any(n => 
+                Math.Abs(n.X - boundaryPoint.X) < Tolerance && 
+                Math.Abs(n.Y - boundaryPoint.Y) < Tolerance);
+
+            Assert.That(hasBoundaryPoint, Is.True, 
+                "The original boundary point should be in the mesh");
+        }
+
+        [Test]
+        public void BuildMesh_MixedTriangle_OneFiberTwoBoundaries_ShouldGenerateTriangleWithCorrectNodeTypes()
+        {
+            // Arrange: Create a triangle with 1 fiber node and 2 boundary nodes
+            var boundary = CreateTestBoundary();
+            var fiberParams = CreateTestFiberParameters();
+
+            var fiber1 = new Fiber(new double[] { 0.5, 0.5, 0 }, fiberParams, boundary);
+            var fibers = new List<Fiber> { fiber1 };
+
+            var boundaryPoint1 = new Point2D(0, 0);
+            var boundaryPoint2 = new Point2D(1, 0);
+
+            // Create nodes for triangulation
+            var nodes = new List<Node>
+            {
+                new Node(new Point2D(0.5, 0.5), 0, NodeType.FiberCenter, (0, 0)),
+                new Node(boundaryPoint1, null, NodeType.BoundaryPoint, (0, 0)),
+                new Node(boundaryPoint2, null, NodeType.BoundaryCorner, (0, 0))
+            };
+
+            var triangles = new List<int[]> { new[] { 0, 1, 2 } };
+            var triangulation = new TriangulationMesh2D(nodes, triangles);
+
+            var config = new ElementConfig();
+            var builder = new ElementBuilder();
+
+            // Act
+            var mesh = builder.BuildMesh(triangulation, fibers, boundary, config);
+
+            // Assert
+            Assert.That(mesh.Elements.Count, Is.GreaterThan(0), "Should generate at least one element");
+
+            var triangleElements = mesh.Elements.Where(e => e is TriangleElement).ToList();
+            Assert.That(triangleElements.Count, Is.EqualTo(1), "Should generate exactly one triangle element");
+
+            // Verify nodes
+            Assert.That(mesh.GlobalNodes.Count, Is.GreaterThanOrEqualTo(3), "Should have at least 3 nodes");
+
+            // Check that one node is on the fiber surface
+            bool hasNodeOnFiberSurface = mesh.GlobalNodes.Any(n => 
+                Math.Abs(MathHelper.CalcDistanceBetweenTwoPoints(n, new Point2D(0.5, 0.5)) - fiber1.Radius) < Tolerance);
+
+            Assert.That(hasNodeOnFiberSurface, Is.True, 
+                "One node should be on the fiber surface");
+
+            // Check that both boundary points are in the mesh
+            bool hasBoundaryPoint1 = mesh.GlobalNodes.Any(n => 
+                Math.Abs(n.X - boundaryPoint1.X) < Tolerance && 
+                Math.Abs(n.Y - boundaryPoint1.Y) < Tolerance);
+            bool hasBoundaryPoint2 = mesh.GlobalNodes.Any(n => 
+                Math.Abs(n.X - boundaryPoint2.X) < Tolerance && 
+                Math.Abs(n.Y - boundaryPoint2.Y) < Tolerance);
+
+            Assert.That(hasBoundaryPoint1, Is.True, "First boundary point should be in the mesh");
+            Assert.That(hasBoundaryPoint2, Is.True, "Second boundary point should be in the mesh");
+        }
+
+        [Test]
+        public void BuildMesh_AllBoundaryTriangle_ShouldGenerateTriangleWithOriginalPoints()
+        {
+            // Arrange: Create a triangle with all boundary nodes
+            var fibers = new List<Fiber>();
+
+            var boundaryPoint1 = new Point2D(0, 0);
+            var boundaryPoint2 = new Point2D(1, 0);
+            var boundaryPoint3 = new Point2D(0.5, 1);
+
+            // Create nodes for triangulation
+            var nodes = new List<Node>
+            {
+                new Node(boundaryPoint1, null, NodeType.BoundaryCorner, (0, 0)),
+                new Node(boundaryPoint2, null, NodeType.BoundaryCorner, (0, 0)),
+                new Node(boundaryPoint3, null, NodeType.BoundaryPoint, (0, 0))
+            };
+
+            var triangles = new List<int[]> { new[] { 0, 1, 2 } };
+            var triangulation = new TriangulationMesh2D(nodes, triangles);
+
+            var boundary = CreateTestBoundary();
+            var config = new ElementConfig();
+            var builder = new ElementBuilder();
+
+            // Act
+            var mesh = builder.BuildMesh(triangulation, fibers, boundary, config);
+
+            // Assert
+            Assert.That(mesh.Elements.Count, Is.EqualTo(1), "Should generate exactly one element");
+
+            var triangleElements = mesh.Elements.Where(e => e is TriangleElement).ToList();
+            Assert.That(triangleElements.Count, Is.EqualTo(1), "Should generate exactly one triangle element");
+
+            // Verify that all three boundary points are in the mesh (exact matches)
+            Assert.That(mesh.GlobalNodes.Count, Is.EqualTo(3), "Should have exactly 3 nodes");
+
+            bool hasBoundaryPoint1 = mesh.GlobalNodes.Any(n => 
+                Math.Abs(n.X - boundaryPoint1.X) < Tolerance && 
+                Math.Abs(n.Y - boundaryPoint1.Y) < Tolerance);
+            bool hasBoundaryPoint2 = mesh.GlobalNodes.Any(n => 
+                Math.Abs(n.X - boundaryPoint2.X) < Tolerance && 
+                Math.Abs(n.Y - boundaryPoint2.Y) < Tolerance);
+            bool hasBoundaryPoint3 = mesh.GlobalNodes.Any(n => 
+                Math.Abs(n.X - boundaryPoint3.X) < Tolerance && 
+                Math.Abs(n.Y - boundaryPoint3.Y) < Tolerance);
+
+            Assert.That(hasBoundaryPoint1, Is.True, "First boundary point should be in the mesh");
+            Assert.That(hasBoundaryPoint2, Is.True, "Second boundary point should be in the mesh");
+            Assert.That(hasBoundaryPoint3, Is.True, "Third boundary point should be in the mesh");
+        }
+
+        [Test]
+        public void BuildMesh_AllFiberTriangle_ShouldGenerateTriangleWithSurfacePoints()
+        {
+            // Arrange: Create a triangle with all fiber nodes
+            var boundary = CreateTestBoundary();
+            var fiberParams = CreateTestFiberParameters();
+
+            var fiber1 = new Fiber(new double[] { 0, 0, 0 }, fiberParams, boundary);
+            var fiber2 = new Fiber(new double[] { 1, 0, 0 }, fiberParams, boundary);
+            var fiber3 = new Fiber(new double[] { 0.5, 1, 0 }, fiberParams, boundary);
+            var fibers = new List<Fiber> { fiber1, fiber2, fiber3 };
+
+            // Create nodes for triangulation
+            var nodes = new List<Node>
+            {
+                new Node(new Point2D(0, 0), 0, NodeType.FiberCenter, (0, 0)),
+                new Node(new Point2D(1, 0), 1, NodeType.FiberCenter, (0, 0)),
+                new Node(new Point2D(0.5, 1), 2, NodeType.FiberCenter, (0, 0))
+            };
+
+            var triangles = new List<int[]> { new[] { 0, 1, 2 } };
+            var triangulation = new TriangulationMesh2D(nodes, triangles);
+
+            var config = new ElementConfig();
+            var builder = new ElementBuilder();
+
+            // Act
+            var mesh = builder.BuildMesh(triangulation, fibers, boundary, config);
+
+            // Assert
+            Assert.That(mesh.Elements.Count, Is.GreaterThan(0), "Should generate at least one element");
+
+            var triangleElements = mesh.Elements.Where(e => e is TriangleElement).ToList();
+            Assert.That(triangleElements.Count, Is.GreaterThanOrEqualTo(1), "Should generate at least one triangle element");
+
+            // Verify that nodes are on fiber surfaces, not at fiber centers
+            bool hasNodeOnFiber1Surface = mesh.GlobalNodes.Any(n => 
+                Math.Abs(MathHelper.CalcDistanceBetweenTwoPoints(n, new Point2D(0, 0)) - fiber1.Radius) < Tolerance);
+            bool hasNodeOnFiber2Surface = mesh.GlobalNodes.Any(n => 
+                Math.Abs(MathHelper.CalcDistanceBetweenTwoPoints(n, new Point2D(1, 0)) - fiber2.Radius) < Tolerance);
+            bool hasNodeOnFiber3Surface = mesh.GlobalNodes.Any(n => 
+                Math.Abs(MathHelper.CalcDistanceBetweenTwoPoints(n, new Point2D(0.5, 1)) - fiber3.Radius) < Tolerance);
+
+            Assert.That(hasNodeOnFiber1Surface, Is.True, "Should have node on fiber 1 surface");
+            Assert.That(hasNodeOnFiber2Surface, Is.True, "Should have node on fiber 2 surface");
+            Assert.That(hasNodeOnFiber3Surface, Is.True, "Should have node on fiber 3 surface");
+        }
+
+        [Test]
+        public void BuildMesh_MixedTriangles_WithFiberBoundaryEdge_ShouldGenerateFiberAndTriangularElements()
+        {
+            // Arrange: Create two adjacent triangles sharing a fiber-boundary edge
+            var boundary = CreateTestBoundary();
+            var fiberParams = CreateTestFiberParameters();
+
+            var fiber1 = new Fiber(new double[] { 0.5, 0.5, 0 }, fiberParams, boundary);
+            var fibers = new List<Fiber> { fiber1 };
+
+            // Triangle 1: 1 fiber + 2 boundary nodes
+            // Triangle 2: 1 fiber + 2 boundary nodes (shares 1 fiber and 1 boundary with Triangle 1)
+            var nodes = new List<Node>
+            {
+                new Node(new Point2D(0.5, 0.5), 0, NodeType.FiberCenter, (0, 0)),  // node 0: fiber
+                new Node(new Point2D(0, 0), null, NodeType.BoundaryCorner, (0, 0)), // node 1: boundary
+                new Node(new Point2D(1, 0), null, NodeType.BoundaryCorner, (0, 0)), // node 2: boundary
+                new Node(new Point2D(0.5, 1.0), null, NodeType.BoundaryPoint, (0, 0)) // node 3: boundary
+            };
+
+            // Triangle 1: fiber (0), boundary (1), boundary (2)
+            // Triangle 2: fiber (0), boundary (2), boundary (3)
+            // Shared edge: fiber (0) - boundary (2)
+            var triangles = new List<int[]> 
+            { 
+                new[] { 0, 1, 2 },
+                new[] { 0, 2, 3 }
+            };
+
+            var triangulation = new TriangulationMesh2D(nodes, triangles);
+            var config = new ElementConfig();
+            var builder = new ElementBuilder();
+
+            // Act
+            var mesh = builder.BuildMesh(triangulation, fibers, boundary, config);
+
+            // Assert
+            var triangleElements = mesh.Elements.Where(e => e is TriangleElement).ToList();
+
+            // Should have:
+            // - 2 interior triangle elements (one per triangle)
+            // - 1 fiber element (6-node triangle on fiber surface)
+            // - 1 triangular matrix element (6-node triangle between fiber and boundary)
+            Assert.That(triangleElements.Count, Is.EqualTo(4), 
+                "Should have 2 interior + 1 fiber + 1 triangular matrix = 4 triangle elements");
+
+            // Check that we have fiber phase and matrix phase elements
+            var fiberElements = mesh.Elements.Where(e => e.Phase == ElementPhase.Fiber).ToList();
+            var matrixElements = mesh.Elements.Where(e => e.Phase == ElementPhase.Matrix).ToList();
+
+            Assert.That(fiberElements.Count, Is.EqualTo(1), "Should have 1 fiber element");
+            Assert.That(matrixElements.Count, Is.GreaterThanOrEqualTo(3), 
+                "Should have at least 2 interior triangles + 1 triangular matrix element");
+        }
+
+        [Test]
+        public void BuildMesh_MixedTriangles_TwoFiberBoundaryEdges_ShouldGenerateTwoSetsOfElements()
+        {
+            // Arrange: Three triangles forming a strip with two fiber-boundary shared edges
+            var boundary = CreateTestBoundary();
+            var fiberParams = CreateTestFiberParameters();
+
+            var fiber1 = new Fiber(new double[] { 0.5, 0.5, 0 }, fiberParams, boundary);
+            var fibers = new List<Fiber> { fiber1 };
+
+            var nodes = new List<Node>
+            {
+                new Node(new Point2D(0.5, 0.5), 0, NodeType.FiberCenter, (0, 0)),
+                new Node(new Point2D(0, 0), null, NodeType.BoundaryCorner, (0, 0)),
+                new Node(new Point2D(1, 0), null, NodeType.BoundaryCorner, (0, 0)),
+                new Node(new Point2D(0.5, 1.0), null, NodeType.BoundaryPoint, (0, 0)),
+                new Node(new Point2D(0, 1.0), null, NodeType.BoundaryCorner, (0, 0))
+            };
+
+            var triangles = new List<int[]> 
+            { 
+                new[] { 0, 1, 2 }, // fiber-boundary-boundary
+                new[] { 0, 2, 3 }, // fiber-boundary-boundary (shares fiber-boundary edge with tri 0)
+                new[] { 0, 3, 4 }  // fiber-boundary-boundary (shares fiber-boundary edge with tri 1)
+            };
+
+            var triangulation = new TriangulationMesh2D(nodes, triangles);
+            var config = new ElementConfig();
+            var builder = new ElementBuilder();
+
+            // Act
+            var mesh = builder.BuildMesh(triangulation, fibers, boundary, config);
+
+            // Assert
+            var fiberElements = mesh.Elements.Where(e => e.Phase == ElementPhase.Fiber).ToList();
+
+            // Should have 2 fiber elements (one per shared fiber-boundary edge)
+            Assert.That(fiberElements.Count, Is.EqualTo(2), "Should have 2 fiber elements for 2 shared edges");
+        }
+
+        [Test]
+        public void BuildMesh_MixedAndAllFiberTriangles_ShouldGenerateMixOfElements()
+        {
+            // Arrange: Mix of triangles to test various edge types
+            var boundary = CreateTestBoundary();
+            var fiberParams = CreateTestFiberParameters();
+
+            var fiber1 = new Fiber(new double[] { 0.3, 0.5, 0 }, fiberParams, boundary);
+            var fiber2 = new Fiber(new double[] { 0.7, 0.5, 0 }, fiberParams, boundary);
+            var fiber3 = new Fiber(new double[] { 0.5, 0.2, 0 }, fiberParams, boundary);
+            var fibers = new List<Fiber> { fiber1, fiber2, fiber3 };
+
+            // Create a configuration with three triangles:
+            // Triangle 1 (all-fiber): fiber1, fiber2, fiber3
+            // Triangle 2 (mixed): fiber1, fiber2, boundary
+            // These share edge (fiber1, fiber2) -> should create quad element
+            var nodes = new List<Node>
+            {
+                new Node(new Point2D(0.3, 0.5), 0, NodeType.FiberCenter, (0, 0)),  // node 0: fiber1
+                new Node(new Point2D(0.7, 0.5), 1, NodeType.FiberCenter, (0, 0)),  // node 1: fiber2
+                new Node(new Point2D(0.5, 0.2), 2, NodeType.FiberCenter, (0, 0)),  // node 2: fiber3
+                new Node(new Point2D(0.5, 0.8), null, NodeType.BoundaryPoint, (0, 0)) // node 3: boundary
+            };
+
+            var triangles = new List<int[]> 
+            { 
+                new[] { 0, 1, 2 }, // all-fiber: fiber1, fiber2, fiber3
+                new[] { 0, 1, 3 }  // mixed: fiber1, fiber2, boundary
+                // These triangles share edge (0, 1) = (fiber1, fiber2)
+            };
+
+            var triangulation = new TriangulationMesh2D(nodes, triangles);
+            var config = new ElementConfig();
+            var builder = new ElementBuilder();
+
+            // Act
+            var mesh = builder.BuildMesh(triangulation, fibers, boundary, config);
+
+            // Assert - verify elements are generated
+            Assert.That(mesh.Elements.Count, Is.GreaterThan(0), "Should generate elements");
+
+            var fiberElements = mesh.Elements.Where(e => e.Phase == ElementPhase.Fiber).ToList();
+            var matrixElements = mesh.Elements.Where(e => e.Phase == ElementPhase.Matrix).ToList();
+
+            // Should have fiber elements from the shared fiber-fiber edge
+            Assert.That(fiberElements.Count, Is.GreaterThan(0), "Should have fiber elements");
+
+            // Should have matrix elements (quad from fiber-fiber edge)
+            Assert.That(matrixElements.Count, Is.GreaterThan(0), "Should have matrix elements");
+        }
+
+        [Test]
+        public void BuildMesh_TwoAdjacentAllFiberTriangles_ShouldGenerateQuadElement()
+        {
+            // Arrange: Two adjacent all-fiber triangles (regression test - ensure existing functionality still works)
+            var boundary = CreateTestBoundary();
+            var fiberParams = CreateTestFiberParameters();
+
+            var fiber1 = new Fiber(new double[] { 0, 0, 0 }, fiberParams, boundary);
+            var fiber2 = new Fiber(new double[] { 1, 0, 0 }, fiberParams, boundary);
+            var fiber3 = new Fiber(new double[] { 0.5, 0.5, 0 }, fiberParams, boundary);
+            var fiber4 = new Fiber(new double[] { 0.5, 1.0, 0 }, fiberParams, boundary);
+            var fibers = new List<Fiber> { fiber1, fiber2, fiber3, fiber4 };
+
+            var nodes = new List<Node>
+            {
+                new Node(new Point2D(0, 0), 0, NodeType.FiberCenter, (0, 0)),
+                new Node(new Point2D(1, 0), 1, NodeType.FiberCenter, (0, 0)),
+                new Node(new Point2D(0.5, 0.5), 2, NodeType.FiberCenter, (0, 0)),
+                new Node(new Point2D(0.5, 1.0), 3, NodeType.FiberCenter, (0, 0))
+            };
+
+            // Two triangles sharing edge between fiber2 and fiber3
+            var triangles = new List<int[]> 
+            { 
+                new[] { 0, 1, 2 },
+                new[] { 1, 2, 3 }
+            };
+
+            var triangulation = new TriangulationMesh2D(nodes, triangles);
+            var config = new ElementConfig();
+            var builder = new ElementBuilder();
+
+            // Act
+            var mesh = builder.BuildMesh(triangulation, fibers, boundary, config);
+
+            // Assert
+            var quadElements = mesh.Elements.Where(e => e is QuadElement).ToList();
+
+            Assert.That(quadElements.Count, Is.GreaterThan(0), "Should have at least one quad element between fibers");
+
+            var fiberElements = mesh.Elements.Where(e => e.Phase == ElementPhase.Fiber).ToList();
+            Assert.That(fiberElements.Count, Is.GreaterThan(0), "Should have fiber elements");
+        }
+
+        /// <summary>
+        /// Helper method to create a test boundary for the mesh builder.
+        /// </summary>
+        private CellBoundary CreateTestBoundary()
+        {
+            // Create a simple rectangular boundary
+            var ODimensions = new double[] { 1.0, 2.0, 2.0 };
+            return new CellBoundary(ODimensions);
+        }
+
+        /// <summary>
+        /// Helper method to create test fiber parameters.
+        /// </summary>
+        private FiberParameters CreateTestFiberParameters()
+        {
+            // radius, linearDensity, length, AxialModulus, TransverseModulus, PoissonsRatio12, PoissonsRatio23, ShearModulus12, globalDamping
+            return new FiberParameters(0.2, 1.0, 1.0, 1.0, 1.0, 0.3, 0.3, 0.38, 0.0);
         }
     }
 }

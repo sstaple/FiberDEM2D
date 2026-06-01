@@ -22,7 +22,8 @@ namespace FxTMeshGenerator.IO
     ///      * element_id: Unique element ID
     ///      * element_type: 0=Interior triangle (3-node matrix), 
     ///                      1=Fiber element (6-node curved triangle), 
-    ///                      2=Matrix quad (8-node connecting fibers)
+    ///                      2=Matrix quad (8-node connecting fibers),
+    ///                      3=Matrix triangle (6-node fiber-boundary)
     ///      * element_nodes: Number of nodes in element
     ///    - POINT_DATA fields:
     ///      * node_label: Global node index
@@ -137,6 +138,46 @@ namespace FxTMeshGenerator.IO
                         sw.Write($" {idx}");
                     }
                 }
+                // Special handling for 6-node matrix triangles (fiber-boundary elements)
+                else if (elem is TriangleElement tri6 && tri6.NodeCount == 6 && tri6.Phase == ElementPhase.Matrix)
+                {
+                    // Our node order: [0,1,2]=corners, [3]=mid12, [4]=mid01, [5]=mid20
+                    // VTK expects: [0,1,2]=corners, [3]=mid01, [4]=mid12, [5]=mid20
+                    // Remapping: [0,1,2,4,3,5] -> [0,1,2,3,4,5]
+                    int[] reorderMap = new int[] { 0, 1, 2, 4, 3, 5 };
+                    for (int i = 0; i < 6; i++)
+                    {
+                        int idx = FindNodeIndex(mesh.GlobalNodes, elem.Nodes[reorderMap[i]]);
+                        sw.Write($" {idx}");
+                    }
+                }
+                // Special handling for 8-node matrix quads (fiber-fiber elements)
+                else if (elem is QuadElement quad && quad.NodeCount == 8 && quad.Phase == ElementPhase.Matrix)
+                {
+                    // Our node order: [0,1,2,3,4,5,6,7] = corner, mid, corner, mid, corner, mid, corner, mid
+                    // Layout:
+                    //   6--5--4
+                    //   |     |
+                    //   7     3
+                    //   |     |
+                    //   0--1--2
+                    //
+                    // VTK expects: [0,1,2,3,4,5,6,7] = corner, corner, corner, corner, mid, mid, mid, mid
+                    // Layout:
+                    //   3--6--2
+                    //   |     |
+                    //   7     5
+                    //   |     |
+                    //   0--4--1
+                    //
+                    // Remapping: [0,2,4,6,1,3,5,7] -> [0,1,2,3,4,5,6,7]
+                    int[] reorderMap = new int[] { 0, 2, 4, 6, 1, 3, 5, 7 };
+                    for (int i = 0; i < 8; i++)
+                    {
+                        int idx = FindNodeIndex(mesh.GlobalNodes, elem.Nodes[reorderMap[i]]);
+                        sw.Write($" {idx}");
+                    }
+                }
                 else
                 {
                     // Standard order for all other elements
@@ -178,7 +219,7 @@ namespace FxTMeshGenerator.IO
                 sw.WriteLine(elem.Id.ToString(CultureInfo.InvariantCulture));
             }
 
-            // Element type (0 = interior triangle, 1 = fiber triangle, 2 = matrix quad)
+            // Element type (0 = interior triangle, 1 = fiber triangle, 2 = matrix quad, 3 = matrix triangle fiber-boundary)
             sw.WriteLine("SCALARS element_type int 1");
             sw.WriteLine("LOOKUP_TABLE default");
             foreach (var elem in mesh.Elements)
@@ -186,8 +227,9 @@ namespace FxTMeshGenerator.IO
                 int elemType = elem switch
                 {
                     TriangleElement tri when tri.NodeCount == 3 && tri.Phase == ElementPhase.Matrix => 0,
-                    TriangleElement tri when tri.Phase == ElementPhase.Fiber => 1,
-                    QuadElement quad when quad.Phase == ElementPhase.Matrix => 2,
+                    TriangleElement tri when tri.NodeCount == 6 && tri.Phase == ElementPhase.Fiber => 1,
+                    QuadElement quad when quad.NodeCount == 8 && quad.Phase == ElementPhase.Matrix => 2,
+                    TriangleElement tri when tri.NodeCount == 6 && tri.Phase == ElementPhase.Matrix => 3,
                     _ => -1
                 };
                 sw.WriteLine(elemType.ToString(CultureInfo.InvariantCulture));

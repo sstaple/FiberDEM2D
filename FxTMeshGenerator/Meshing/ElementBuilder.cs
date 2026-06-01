@@ -18,6 +18,48 @@ namespace FxTMeshGenerator.Meshing
         private int _elementIdCounter = 0;
         private const double NodeTolerance = 1e-10;
 
+        /// <summary>
+        /// Encapsulates information about a shared edge between two triangles.
+        /// </summary>
+        private sealed class EdgeData
+        {
+            public Node[] Triangle1Nodes { get; }
+            public Node[] Triangle2Nodes { get; }
+            public Point2D[] Triangle1ElementNodes { get; }
+            public Point2D[] Triangle2ElementNodes { get; }
+            public Node[] SharedEdgeNodes { get; }
+            public EdgeType Type { get; }
+
+            public EdgeData(
+                Node[] tri1Nodes,
+                Node[] tri2Nodes,
+                Point2D[] tri1ElemNodes,
+                Point2D[] tri2ElemNodes,
+                Node[] sharedEdgeNodes,
+                EdgeType edgeType)
+            {
+                Triangle1Nodes = tri1Nodes;
+                Triangle2Nodes = tri2Nodes;
+                Triangle1ElementNodes = tri1ElemNodes;
+                Triangle2ElementNodes = tri2ElemNodes;
+                SharedEdgeNodes = sharedEdgeNodes;
+                Type = edgeType;
+            }
+        }
+
+        /// <summary>
+        /// Classification of edge types based on node composition.
+        /// </summary>
+        private enum EdgeType
+        {
+            /// <summary>Both edge nodes are fiber centers or projected fibers</summary>
+            TwoFibers,
+            /// <summary>One edge node is a fiber, the other is a boundary point</summary>
+            OneFiberOneBoundary,
+            /// <summary>Both edge nodes are boundary points</summary>
+            TwoBoundaries
+        }
+
         public FEMesh BuildMesh(TriangulationMesh2D triangulation,IReadOnlyList<Fiber> fibers,
             CellBoundary boundary,ElementConfig config, DebugOptions? dOptions = null)
         {
@@ -39,7 +81,6 @@ namespace FxTMeshGenerator.Meshing
             }
 
             // Write intermediate mesh: just interior triangles
-            // Write final mesh: triangles + fiber + quads
             if (dOptions != null && dOptions.Debug)
             {
                 var interiorTriMesh = new FEMesh(_globalNodes.ToList(), _elements.ToList(),
@@ -62,21 +103,9 @@ namespace FxTMeshGenerator.Meshing
             IReadOnlyList<Fiber> fibers,
             ElementConfig config)
         {
-            // Classify triangle based on node types
-            var nodes = new[] { nodeA, nodeB, nodeC };
-            int fiberCount = nodes.Count(n => n.Type == NodeType.FiberCenter || n.Type == NodeType.ProjectedFiber);
-            int boundaryCount = nodes.Count(n => n.Type == NodeType.BoundaryPoint || n.Type == NodeType.BoundaryCorner);
-
-            if (fiberCount == 3)
-            {
-                // Interior triangle: 3 fiber centers
-                BuildInteriorTriangle(nodeA, nodeB, nodeC, fibers, config);
-            }
-            else if (boundaryCount == 3)
-            {
-                // All boundary: simple matrix triangle
-                BuildBoundaryOnlyTriangle(nodeA, nodeB, nodeC, config);
-            }
+            // All triangles now go through BuildInteriorTriangle
+            // It handles both fiber nodes (surface points) and boundary nodes (original points)
+            BuildInteriorTriangle(nodeA, nodeB, nodeC, fibers, config);
         }
 
         private void BuildInteriorTriangle(
@@ -121,13 +150,6 @@ namespace FxTMeshGenerator.Meshing
                 }
             }
 
-            AddTriangleElement(nodes, ElementPhase.Matrix);
-        }
-
-        private void BuildBoundaryOnlyTriangle(Node nodeA, Node nodeB, Node nodeC, ElementConfig config)
-        {
-            // Simple matrix triangle with boundary points
-            var nodes = new[] { nodeA.P, nodeB.P, nodeC.P };
             AddTriangleElement(nodes, ElementPhase.Matrix);
         }
 
@@ -359,64 +381,70 @@ namespace FxTMeshGenerator.Meshing
         }
 
         /// <summary>
-        /// Builds fiber and matrix elements between adjacent triangles.
-        /// Based on MATLAB FE_Mesh.BuildInteriorFiberMatrixElements (lines 253-300).
+        /// Finds all shared edges between adjacent triangles and reconstructs their element nodes.
+        /// Returns edge data classified by edge type (TwoFibers, OneFiberOneBoundary, TwoBoundaries).
         /// </summary>
-        private void BuildInteriorFiberMatrixElements(
+        private List<EdgeData> FindSharedEdgesForFiberElements(
             TriangulationMesh2D triangulation,
-            IReadOnlyList<Fiber> fibers,
-            ElementConfig config,
-            DebugOptions? dOptions=null)
+            IReadOnlyList<Fiber> fibers)
         {
+            var edgeDataList = new List<EdgeData>();
+
             // Store which triangle elements we've already built (mapping from triangle index to built interior triangle nodes)
             var triangleElements = new Dictionary<int, Point2D[]>();
 
-            // Store edge data for building elements
-            var edgeData = new List<(Node[] nodes1, Node[] nodes2, Point2D[] tri1Elem, Point2D[] tri2Elem, Node[] sharedEdgeNodes)>();
-            // Extract interior triangle element nodes for lookup
+            // Reconstruct interior triangle element nodes for all triangles
             for (int i = 0; i < triangulation.Triangles.Count; i++)
             {
                 var tri = triangulation.Triangles[i];
                 var nodeA = triangulation.Nodes[tri[0]];
                 var nodeB = triangulation.Nodes[tri[1]];
                 var nodeC = triangulation.Nodes[tri[2]];
-
-                // Only process interior triangles (3 fiber centers)
                 var nodes = new[] { nodeA, nodeB, nodeC };
-                int fiberCount = nodes.Count(n => n.Type == NodeType.FiberCenter || n.Type == NodeType.ProjectedFiber);
 
-                if (fiberCount == 3)
+                // Reconstruct the interior triangle element nodes the same way we built them
+                var elementNodes = new Point2D[3];
+                var overlapInfo = DetectFiberOverlaps(nodes, fibers);
+
+                for (int j = 0; j < 3; j++)
                 {
-                    // Reconstruct the interior triangle element nodes the same way we built them
-                    var elementNodes = new Point2D[3];
-                    var overlapInfo = DetectFiberOverlaps(nodes, fibers);
+                    var currentNode = nodes[j];
+                    var otherIndices = GetOtherIndices(j);
+                    var otherNode1 = nodes[otherIndices[0]];
+                    var otherNode2 = nodes[otherIndices[1]];
 
-                    for (int j = 0; j < 3; j++)
+                    // Calculate surface point for fiber centers, use point as-is for boundary nodes
+                    if (currentNode.Type == NodeType.FiberCenter || currentNode.Type == NodeType.ProjectedFiber)
                     {
-                        var currentNode = nodes[j];
-                        var otherIndices = GetOtherIndices(j);
-                        var otherNode1 = nodes[otherIndices[0]];
-                        var otherNode2 = nodes[otherIndices[1]];
-
                         var fiber = fibers[currentNode.FiberId.Value];
                         Point2D fiberCenter = currentNode.P;
 
-                        elementNodes[j] = CalculateFiberSurfacePoint( fiberCenter, fiber.Radius, otherNode1.P, otherNode2.P, 
-                            overlapInfo[j], j,overlapInfo);
+                        elementNodes[j] = CalculateFiberSurfacePoint(
+                            fiberCenter,
+                            fiber.Radius,
+                            otherNode1.P,
+                            otherNode2.P,
+                            overlapInfo[j],
+                            j,
+                            overlapInfo);
                     }
-
-                    triangleElements[i] = elementNodes;
+                    else
+                    {
+                        // Boundary node - use as is
+                        elementNodes[j] = currentNode.P;
+                    }
                 }
+
+                triangleElements[i] = elementNodes;
             }
 
-            // Find adjacent triangle pairs and build fiber/matrix elements
-            // Based on MATLAB CreateArrayOfAllTriadPairs and BuildInteriorFiberMatrixElements
+            // Find adjacent triangle pairs and classify edges
             var processedEdges = new HashSet<string>();
 
             for (int i = 0; i < triangulation.Triangles.Count; i++)
             {
                 if (!triangleElements.ContainsKey(i))
-                    continue; // Skip non-interior triangles
+                    continue;
 
                 var tri1 = triangulation.Triangles[i];
                 var nodes1 = new[] { 
@@ -425,11 +453,7 @@ namespace FxTMeshGenerator.Meshing
                     triangulation.Nodes[tri1[2]] 
                 };
 
-                // Check only interior triangles
-                if (nodes1.Any(n => n.Type != NodeType.FiberCenter && n.Type != NodeType.ProjectedFiber))
-                    continue;
-
-                // Find all edges of this triangle (store both FiberId and Offset)
+                // Find all edges of this triangle
                 var edges = new[] {
                     (nodes1[0], nodes1[1]),
                     (nodes1[1], nodes1[2]),
@@ -458,11 +482,7 @@ namespace FxTMeshGenerator.Meshing
                             triangulation.Nodes[tri2[2]] 
                         };
 
-                        if (nodes2.Any(n => n.Type != NodeType.FiberCenter && n.Type != NodeType.ProjectedFiber))
-                            continue;
-
                         // Check if this triangle shares the edge
-                        // Must match both FiberId AND Offset to avoid connecting original to projected
                         bool sharesEdge = SharesEdge(nodes2, edge.Item1, edge.Item2);
 
                         if (sharesEdge)
@@ -470,8 +490,19 @@ namespace FxTMeshGenerator.Meshing
                             // Mark edge as processed
                             processedEdges.Add(edgeKey);
 
-                            // Store edge data for later processing - preserve full Node information
-                            edgeData.Add((nodes1, nodes2, triangleElements[i], triangleElements[j], new[] { edge.Item1, edge.Item2 }));
+                            // Classify the edge type based on the shared edge nodes
+                            var edgeType = ClassifyEdgeType(edge.Item1, edge.Item2);
+
+                            // Store edge data with classification
+                            var edgeData = new EdgeData(
+                                nodes1,
+                                nodes2,
+                                triangleElements[i],
+                                triangleElements[j],
+                                new[] { edge.Item1, edge.Item2 },
+                                edgeType);
+
+                            edgeDataList.Add(edgeData);
 
                             break; // Only one adjacent triangle per edge
                         }
@@ -479,10 +510,63 @@ namespace FxTMeshGenerator.Meshing
                 }
             }
 
-            // Now build fiber elements first
-            foreach (var (nodes1, nodes2, tri1Elem, tri2Elem, sharedEdgeNodes) in edgeData)
+            return edgeDataList;
+        }
+
+        /// <summary>
+        /// Classifies an edge based on the node types of its two endpoints.
+        /// </summary>
+        private EdgeType ClassifyEdgeType(Node node1, Node node2)
+        {
+            bool node1IsFiber = node1.Type == NodeType.FiberCenter || node1.Type == NodeType.ProjectedFiber;
+            bool node2IsFiber = node2.Type == NodeType.FiberCenter || node2.Type == NodeType.ProjectedFiber;
+
+            if (node1IsFiber && node2IsFiber)
+                return EdgeType.TwoFibers;
+            else if (node1IsFiber || node2IsFiber)
+                return EdgeType.OneFiberOneBoundary;
+            else
+                return EdgeType.TwoBoundaries;
+        }
+
+        /// <summary>
+        /// Builds fiber and matrix elements between adjacent triangles.
+        /// Based on MATLAB FE_Mesh.BuildInteriorFiberMatrixElements (lines 253-300).
+        /// </summary>
+        private void BuildInteriorFiberMatrixElements(TriangulationMesh2D triangulation,IReadOnlyList<Fiber> fibers,
+            ElementConfig config, DebugOptions? dOptions=null)
+        {
+            // Find all shared edges and classify them
+            var edgeDataList = FindSharedEdgesForFiberElements(triangulation, fibers);
+
+            // Build fiber elements first (based on edge type)
+            foreach (var edgeData in edgeDataList)
             {
-                BuildFiberElementsForSharedEdge(nodes1, nodes2, tri1Elem, tri2Elem, sharedEdgeNodes, fibers, config);
+                if (edgeData.Type == EdgeType.TwoFibers)
+                {
+                    // Build 2 fiber elements for fiber-fiber edge
+                    BuildFiberElementsForSharedEdge(
+                        edgeData.Triangle1Nodes,
+                        edgeData.Triangle2Nodes,
+                        edgeData.Triangle1ElementNodes,
+                        edgeData.Triangle2ElementNodes,
+                        edgeData.SharedEdgeNodes,
+                        fibers,
+                        config);
+                }
+                else if (edgeData.Type == EdgeType.OneFiberOneBoundary)
+                {
+                    // Build 1 fiber element for fiber-boundary edge
+                    BuildSingleFiberElement(
+                        edgeData.Triangle1Nodes,
+                        edgeData.Triangle2Nodes,
+                        edgeData.Triangle1ElementNodes,
+                        edgeData.Triangle2ElementNodes,
+                        edgeData.SharedEdgeNodes,
+                        fibers,
+                        config);
+                }
+                // TwoBoundaries: no fiber elements
             }
 
             // Write intermediate mesh: triangles + fiber elements (before quads)
@@ -493,13 +577,37 @@ namespace FxTMeshGenerator.Meshing
                 IO.VtkLegacyWriter.WriteUnstructuredMesh(dOptions.GetDebugFilePath("triPlusFib"), triPlusFibMesh);
             }
 
-            // Now build quad elements
-            foreach (var (nodes1, nodes2, tri1Elem, tri2Elem, sharedEdgeNodes) in edgeData)
+            // Now build matrix elements (quad or triangular based on edge type)
+            foreach (var edgeData in edgeDataList)
             {
-                BuildQuadElementForSharedEdge(nodes1, nodes2, tri1Elem, tri2Elem, sharedEdgeNodes, fibers, config);
+                if (edgeData.Type == EdgeType.TwoFibers)
+                {
+                    // Build 8-node quad element between two fibers
+                    BuildQuadElementForSharedEdge(
+                        edgeData.Triangle1Nodes,
+                        edgeData.Triangle2Nodes,
+                        edgeData.Triangle1ElementNodes,
+                        edgeData.Triangle2ElementNodes,
+                        edgeData.SharedEdgeNodes,
+                        fibers,
+                        config);
+                }
+                else if (edgeData.Type == EdgeType.OneFiberOneBoundary)
+                {
+                    // Build 6-node triangular matrix element between fiber and boundary
+                    BuildTriangularMatrixElement(
+                        edgeData.Triangle1Nodes,
+                        edgeData.Triangle2Nodes,
+                        edgeData.Triangle1ElementNodes,
+                        edgeData.Triangle2ElementNodes,
+                        edgeData.SharedEdgeNodes,
+                        fibers,
+                        config);
+                }
+                // TwoBoundaries: no matrix elements between boundaries
             }
 
-            // Write final mesh: triangles + fiber + quads
+            // Write final mesh: triangles + fiber + quads/triangles
             if (dOptions != null && dOptions.Debug)
             {
                 var fullMesh = new FEMesh(_globalNodes.ToList(), _elements.ToList(),
@@ -558,6 +666,57 @@ namespace FxTMeshGenerator.Meshing
         }
 
         /// <summary>
+        /// Builds 1 fiber element for a shared edge with one fiber and one boundary node.
+        /// </summary>
+        private void BuildSingleFiberElement(
+            Node[] triangle1Nodes, Node[] triangle2Nodes,
+            Point2D[] triangle1ElementNodes, Point2D[] triangle2ElementNodes,
+            Node[] sharedEdgeNodes,
+            IReadOnlyList<Fiber> fibers,
+            ElementConfig config)
+        {
+            // Identify which node is the fiber and which is the boundary
+            Node fiberNode;
+            Fiber fiber;
+
+            if (sharedEdgeNodes[0].Type == NodeType.FiberCenter || sharedEdgeNodes[0].Type == NodeType.ProjectedFiber)
+            {
+                fiberNode = sharedEdgeNodes[0];
+                fiber = fibers[fiberNode.FiberId.Value];
+            }
+            else
+            {
+                fiberNode = sharedEdgeNodes[1];
+                fiber = fibers[fiberNode.FiberId.Value];
+            }
+
+            // Get fiber center position (includes projection offset if applicable)
+            var fiberCenter = fiberNode.P;
+
+            // Find element nodes by matching the fiber node in both triangles
+            var fiberNode_Tri1 = FindInteriorTriangleNodeByNode(triangle1Nodes, triangle1ElementNodes, fiberNode);
+            var fiberNode_Tri2 = FindInteriorTriangleNodeByNode(triangle2Nodes, triangle2ElementNodes, fiberNode);
+
+            // Determine if shared edge is in CCW order in triangle 1
+            bool isEdgeCCW = CheckIfSharedEdgeIsCCWOrder(triangle1Nodes, sharedEdgeNodes);
+
+            // Determine fiber node order (creates curved fiber surface with 6 nodes)
+            var fiberNodes = DetermineFiberNodeOrder(fiberCenter, fiberNode_Tri1, fiberNode_Tri2, fiber.Radius, isEdgeCCW);
+
+            // Check for zero thickness (overlap)
+            var thicknessCheck = new Point2D(
+                fiberNodes[3].X - fiberNodes[2].X,
+                fiberNodes[3].Y - fiberNodes[2].Y);
+            double thickness = Math.Abs(thicknessCheck.X) + Math.Abs(thicknessCheck.Y);
+
+            if (thickness < 1e-5)
+                return; // Skip zero-thickness elements
+
+            // Build and add the single fiber element
+            AddFiberElement(fiberNodes, ElementPhase.Fiber);
+        }
+
+        /// <summary>
         /// Builds 1 matrix quad element for a shared edge between two triangles.
         /// </summary>
         private void BuildQuadElementForSharedEdge(
@@ -608,6 +767,107 @@ namespace FxTMeshGenerator.Meshing
         }
 
         /// <summary>
+        /// Builds 1 triangular matrix element for a shared edge with one fiber and one boundary node.
+        /// Creates a 6-node triangular element connecting the fiber surface to the boundary point.
+        /// </summary>
+        private void BuildTriangularMatrixElement(
+            Node[] triangle1Nodes, Node[] triangle2Nodes,
+            Point2D[] triangle1ElementNodes, Point2D[] triangle2ElementNodes,
+            Node[] sharedEdgeNodes,
+            IReadOnlyList<Fiber> fibers,
+            ElementConfig config)
+        {
+            // Identify which node is the fiber and which is the boundary
+            Node fiberNode, boundaryNode;
+            Fiber fiber;
+
+            if (sharedEdgeNodes[0].Type == NodeType.FiberCenter || sharedEdgeNodes[0].Type == NodeType.ProjectedFiber)
+            {
+                fiberNode = sharedEdgeNodes[0];
+                boundaryNode = sharedEdgeNodes[1];
+                fiber = fibers[fiberNode.FiberId.Value];
+            }
+            else
+            {
+                fiberNode = sharedEdgeNodes[1];
+                boundaryNode = sharedEdgeNodes[0];
+                fiber = fibers[fiberNode.FiberId.Value];
+            }
+
+            // Get positions
+            var fiberCenter = fiberNode.P;
+            var boundaryPoint = boundaryNode.P;
+
+            // Find element nodes by matching the nodes in both triangles
+            var fiberNode_Tri1 = FindInteriorTriangleNodeByNode(triangle1Nodes, triangle1ElementNodes, fiberNode);
+            var fiberNode_Tri2 = FindInteriorTriangleNodeByNode(triangle2Nodes, triangle2ElementNodes, fiberNode);
+            var boundaryNode_Tri1 = FindInteriorTriangleNodeByNode(triangle1Nodes, triangle1ElementNodes, boundaryNode);
+            var boundaryNode_Tri2 = FindInteriorTriangleNodeByNode(triangle2Nodes, triangle2ElementNodes, boundaryNode);
+
+            // Verify the boundary nodes from both triangles are the same point
+            if (Math.Abs(boundaryNode_Tri1.X - boundaryNode_Tri2.X) > NodeTolerance ||
+                Math.Abs(boundaryNode_Tri1.Y - boundaryNode_Tri2.Y) > NodeTolerance)
+            {
+                throw new InvalidOperationException("Boundary nodes from adjacent triangles don't match");
+            }
+
+            // Determine if shared edge is in CCW order in triangle 1
+            bool isEdgeCCW = CheckIfSharedEdgeIsCCWOrder(triangle1Nodes, sharedEdgeNodes);
+
+            // Determine fiber node order (creates curved fiber surface with 6 nodes)
+            var fiberNodes = DetermineFiberNodeOrder(fiberCenter, fiberNode_Tri1, fiberNode_Tri2, fiber.Radius, isEdgeCCW);
+
+            // Build 6-node triangular matrix element
+            // Node layout for 6-node triangle:
+            //     node2
+            //      /\
+            //     /  \
+            // n5 /    \ n3
+            //   /      \
+            //  /________\
+            // node0  n4  node1
+            //
+            // Where n3, n4, n5 are midpoint nodes
+
+            var triangleNodes = new Point2D[6];
+
+            // Corner nodes:
+            // - Two nodes on fiber surface (from fiber element nodes 2 and 4)
+            // - One node at boundary point
+            if (isEdgeCCW)
+            {
+                // Fiber node is first in shared edge
+                triangleNodes[0] = fiberNodes[2];  // First point on fiber surface
+                triangleNodes[1] = fiberNodes[4];  // Second point on fiber surface
+                triangleNodes[2] = boundaryNode_Tri1; // Boundary point
+            }
+            else
+            {
+                // Boundary node is first in shared edge
+                triangleNodes[0] = boundaryNode_Tri1; // Boundary point
+                triangleNodes[1] = fiberNodes[2];  // First point on fiber surface
+                triangleNodes[2] = fiberNodes[4];  // Second point on fiber surface
+            }
+
+            // Midpoint nodes:
+            // n3: midpoint between node1 and node2
+            triangleNodes[3] = new Point2D(
+                (triangleNodes[1].X + triangleNodes[2].X) / 2.0,
+                (triangleNodes[1].Y + triangleNodes[2].Y) / 2.0);
+
+            // n4: midpoint between node0 and node1 (on fiber surface - use node 3 from fiber element)
+            triangleNodes[4] = fiberNodes[3];
+
+            // n5: midpoint between node2 and node0
+            triangleNodes[5] = new Point2D(
+                (triangleNodes[2].X + triangleNodes[0].X) / 2.0,
+                (triangleNodes[2].Y + triangleNodes[0].Y) / 2.0);
+
+            // Build and add the triangular matrix element
+            AddTriangleElement(triangleNodes, ElementPhase.Matrix);
+        }
+
+        /// <summary>
         /// Builds 2 fiber elements and 1 matrix element for a shared edge between two triangles.
         /// DEPRECATED: Split into BuildFiberElementsForSharedEdge and BuildQuadElementForSharedEdge for debug output.
         /// </summary>
@@ -640,6 +900,34 @@ namespace FxTMeshGenerator.Meshing
                 }
             }
             throw new InvalidOperationException($"Could not find element node for fiber {targetNode.FiberId} with offset ({targetNode.Offset.ox},{targetNode.Offset.oy}) in triangle");
+        }
+
+        /// <summary>
+        /// Finds the interior triangle element node that corresponds to any node (fiber or boundary).
+        /// Matches FiberId and Offset for fiber nodes, or position for boundary nodes.
+        /// </summary>
+        private Point2D FindInteriorTriangleNodeByNode(Node[] triangleNodes, Point2D[] elementNodes, Node targetNode)
+        {
+            for (int i = 0; i < triangleNodes.Length; i++)
+            {
+                // For fiber nodes: match by FiberId and Offset
+                if (targetNode.Type == NodeType.FiberCenter || targetNode.Type == NodeType.ProjectedFiber)
+                {
+                    if (triangleNodes[i].FiberId == targetNode.FiberId && 
+                        triangleNodes[i].Offset == targetNode.Offset)
+                    {
+                        return elementNodes[i];
+                    }
+                }
+                // For boundary nodes: match by position (FiberId is null)
+                else if (triangleNodes[i].Type == targetNode.Type &&
+                         Math.Abs(triangleNodes[i].P.X - targetNode.P.X) < NodeTolerance &&
+                         Math.Abs(triangleNodes[i].P.Y - targetNode.P.Y) < NodeTolerance)
+                {
+                    return elementNodes[i];
+                }
+            }
+            throw new InvalidOperationException($"Could not find element node for target node in triangle");
         }
 
         /// <summary>
@@ -719,21 +1007,29 @@ namespace FxTMeshGenerator.Meshing
         /// <summary>
         /// Checks if a shared edge is in counter-clockwise order within a triangle.
         /// Based on MATLAB Triad.CheckIfSharedEdgeIsCCWOrder (lines 119-130).
+        /// Handles both fiber-fiber edges and fiber-boundary edges.
         /// </summary>
         private bool CheckIfSharedEdgeIsCCWOrder(Node[] triangleNodes, Node[] sharedEdgeNodes)
         {
-            var fiberIds = new[] { 
-                triangleNodes[0].FiberId.Value, 
-                triangleNodes[1].FiberId.Value, 
-                triangleNodes[2].FiberId.Value 
-            };
+            // Find indices of the shared edge nodes in the triangle
+            int idx1 = -1;
+            int idx2 = -1;
 
-            int idx1 = Array.IndexOf(fiberIds, sharedEdgeNodes[0].FiberId.Value);
-            int idx2 = Array.IndexOf(fiberIds, sharedEdgeNodes[1].FiberId.Value);
+            for (int i = 0; i < triangleNodes.Length; i++)
+            {
+                if (NodesMatch(triangleNodes[i], sharedEdgeNodes[0]))
+                    idx1 = i;
+                if (NodesMatch(triangleNodes[i], sharedEdgeNodes[1]))
+                    idx2 = i;
+            }
 
+            if (idx1 == -1 || idx2 == -1)
+                throw new InvalidOperationException("Shared edge nodes not found in triangle");
+
+            // Check if edge is in CCW order
             if (idx1 == 0 && idx2 == 2)
                 return false;
-            else if (idx1 < idx2 || (idx1 == fiberIds.Length - 1 && idx2 == 0))
+            else if (idx1 < idx2 || (idx1 == triangleNodes.Length - 1 && idx2 == 0))
                 return true;
             else
                 return false;
@@ -806,7 +1102,8 @@ namespace FxTMeshGenerator.Meshing
 
         /// <summary>
         /// Checks if a triangle shares an edge with two given nodes.
-        /// Matches both FiberId AND Offset to prevent connecting original fibers to projected ones.
+        /// Matches both FiberId AND Offset for fiber nodes, or position for boundary nodes.
+        /// This prevents connecting original fibers to projected ones.
         /// </summary>
         private bool SharesEdge(Node[] triangleNodes, Node edgeNode1, Node edgeNode2)
         {
@@ -815,14 +1112,12 @@ namespace FxTMeshGenerator.Meshing
             foreach (var node in triangleNodes)
             {
                 // Check if node matches edgeNode1
-                if (node.FiberId == edgeNode1.FiberId && 
-                    node.Offset == edgeNode1.Offset)
+                if (NodesMatch(node, edgeNode1))
                 {
                     matchCount++;
                 }
                 // Check if node matches edgeNode2
-                else if (node.FiberId == edgeNode2.FiberId && 
-                         node.Offset == edgeNode2.Offset)
+                else if (NodesMatch(node, edgeNode2))
                 {
                     matchCount++;
                 }
@@ -832,14 +1127,46 @@ namespace FxTMeshGenerator.Meshing
         }
 
         /// <summary>
+        /// Checks if two nodes represent the same point.
+        /// For fiber nodes: matches FiberId and Offset.
+        /// For boundary nodes: matches position.
+        /// </summary>
+        private bool NodesMatch(Node node1, Node node2)
+        {
+            // For fiber nodes: match by FiberId and Offset
+            if (node1.FiberId.HasValue && node2.FiberId.HasValue)
+            {
+                return node1.FiberId == node2.FiberId && node1.Offset == node2.Offset;
+            }
+            // For boundary nodes: match by position
+            else if (!node1.FiberId.HasValue && !node2.FiberId.HasValue)
+            {
+                return Math.Abs(node1.P.X - node2.P.X) < NodeTolerance &&
+                       Math.Abs(node1.P.Y - node2.P.Y) < NodeTolerance &&
+                       node1.Offset == node2.Offset;
+            }
+            // Mixed fiber/boundary: no match
+            else
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
         /// Creates a unique key for an edge including offset information.
+        /// Handles both fiber nodes (with FiberId) and boundary nodes (without FiberId).
         /// This prevents matching original fibers with their projections.
         /// </summary>
         private string GetEdgeKey(Node node1, Node node2)
         {
-            // Create a unique key that includes both FiberId and Offset
-            string key1 = $"{node1.FiberId.Value}_{node1.Offset.ox}_{node1.Offset.oy}";
-            string key2 = $"{node2.FiberId.Value}_{node2.Offset.ox}_{node2.Offset.oy}";
+            // Create a unique key that handles both fiber and boundary nodes
+            string key1 = node1.FiberId.HasValue
+                ? $"F{node1.FiberId.Value}_{node1.Offset.ox}_{node1.Offset.oy}"
+                : $"B{node1.P.X:F10}_{node1.P.Y:F10}_{node1.Offset.ox}_{node1.Offset.oy}";
+
+            string key2 = node2.FiberId.HasValue
+                ? $"F{node2.FiberId.Value}_{node2.Offset.ox}_{node2.Offset.oy}"
+                : $"B{node2.P.X:F10}_{node2.P.Y:F10}_{node2.Offset.ox}_{node2.Offset.oy}";
 
             // Order-independent key
             if (string.CompareOrdinal(key1, key2) < 0)

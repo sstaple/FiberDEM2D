@@ -365,7 +365,7 @@ namespace FxTMeshGenerator.Meshing
             LogMessage($"\n=== Starting Quality-Based Triangulation Optimization ===", dOptions);
 
             // Configuration parameters
-            const double QUALITY_RATIO_THRESHOLD = 2.5; // Don't bother swapping if quality ratio is already decent
+            const double ASPECT_RATIO_THRESHOLD = 2.5; // Don't bother swapping if aspect ratio is already decent
             const int MAX_ITERATIONS = 100;
             const int MAX_STALL_ITERATIONS = 5; // Stop if no progress after this many iterations
 
@@ -388,8 +388,8 @@ namespace FxTMeshGenerator.Meshing
                 int bestTri1 = -1, bestTri2 = -1;
                 int[] bestQuad = null;
                 int[] bestSharedEdge = null; // Track the shared edge for the best swap
-                (int inversions, double worstQualityRatio) bestCurrent = default;
-                (int inversions, double worstQualityRatio) bestSwapped = default;
+                (int inversions, int overlaps, double innerAspect, double outerAspect) bestCurrent = default;
+                (int inversions, int overlaps, double innerAspect, double outerAspect) bestSwapped = default;
 
                 // Track statistics for this iteration
                 int inversionsFound = 0;
@@ -407,14 +407,14 @@ namespace FxTMeshGenerator.Meshing
                     if (swappedQuality.inversions < currentQuality.inversions)
                         inversionsFound++;
 
-                    // Track quality improvements (quality ratio only, no inversion change)
+                    // Track quality improvements (overlaps/aspect ratio, no inversion change)
                     if (currentQuality.inversions == swappedQuality.inversions && 
-                        swappedQuality.worstQualityRatio < currentQuality.worstQualityRatio)
+                        IsConfigurationBetter(swappedQuality, currentQuality))
                         qualityImprovementsFound++;
 
                     // Check if swap is worthwhile and not a recent swap (cycle detection)
                     var swapKey = (Math.Min(tri1Idx, tri2Idx), Math.Max(tri1Idx, tri2Idx));
-                    if (IsSwapWorthwhile(currentQuality, swappedQuality, QUALITY_RATIO_THRESHOLD) && 
+                    if (IsSwapWorthwhile(currentQuality, swappedQuality, ASPECT_RATIO_THRESHOLD) && 
                         !recentSwaps.Contains(swapKey))
                     {
                         double priority = CalculateSwapPriority(currentQuality, swappedQuality, uniqueNodes, fibers, quad);
@@ -454,6 +454,8 @@ namespace FxTMeshGenerator.Meshing
                     // Categorize the swap
                     if (bestSwapped.inversions < bestCurrent.inversions)
                         inversionSwapsPerformed = 1;
+                    else if (bestSwapped.overlaps < bestCurrent.overlaps)
+                        inversionSwapsPerformed = 1;  // Treat overlap fixes as important
                     else
                         qualitySwapsPerformed = 1;
 
@@ -467,8 +469,11 @@ namespace FxTMeshGenerator.Meshing
                             debugTris.Add(new int[3] { delaunay.Triangles[t], delaunay.Triangles[t + 1], delaunay.Triangles[t + 2] });
                         }
 
-                        CreateVTKFileFromTriangles(uniqueNodes,debugTris,dOptions);
-                        LogMessage($"  - Swapped triangles {bestTri1} and {bestTri2} (wrote VTK)", dOptions);
+                        //CreateVTKFileFromTriangles(uniqueNodes,debugTris,dOptions);
+                        LogMessage($"  - Swapped triangles {bestTri1} and {bestTri2}: " +
+                                  $"inv {bestCurrent.inversions}->{bestSwapped.inversions}, " +
+                                  $"overlap {bestCurrent.overlaps}->{bestSwapped.overlaps}, " +
+                                  $"innerAR {bestCurrent.innerAspect:F2}->{bestSwapped.innerAspect:F2}", dOptions);
                     }
                 }
                 else
@@ -501,6 +506,10 @@ namespace FxTMeshGenerator.Meshing
             LogMessage($"Total iterations: {iterationCount}", dOptions);
             LogMessage($"Total swaps performed: {totalSwaps}", dOptions);
 
+            // Log final inversion count (edge triangles may be removed later during projection filtering)
+            int finalInversions = CountTotalInversions(uniqueNodes, delaunay.Triangles, fibers);
+            LogMessage($"Final inversion count: {finalInversions}", dOptions);
+
             // Close log file
             CloseLogFile();
         }
@@ -508,8 +517,8 @@ namespace FxTMeshGenerator.Meshing
         /// <summary>
         /// Determines if a swap is worthwhile based on improvement and thresholds.
         /// </summary>
-        private bool IsSwapWorthwhile((int inversions, double worstQualityRatio) current,
-            (int inversions, double worstQualityRatio) swapped,double qualityRatioThreshold)
+        private bool IsSwapWorthwhile((int inversions, int overlaps, double innerAspect, double outerAspect) current,
+            (int inversions, int overlaps, double innerAspect, double outerAspect) swapped, double aspectThreshold)
         {
             // Always swap if it reduces inversions
             if (swapped.inversions < current.inversions)
@@ -519,45 +528,89 @@ namespace FxTMeshGenerator.Meshing
             if (swapped.inversions > current.inversions)
                 return false;
 
-            // Same inversions: only swap if current quality ratio is bad enough and swap improves it
-            if (current.worstQualityRatio > qualityRatioThreshold && swapped.worstQualityRatio < current.worstQualityRatio)
+            // Always swap if it reduces overlaps (same inversions)
+            if (swapped.overlaps < current.overlaps)
+                return true;
+
+            // Don't swap if it increases overlaps
+            if (swapped.overlaps > current.overlaps)
+                return false;
+
+            // Same inversions and overlaps: check if we should bother swapping for aspect ratio alone
+            // If already good (no inversions/overlaps), don't risk making it worse
+            if (current.inversions == 0 && current.overlaps == 0)
+                return false;
+
+            // Has problems: only swap if inner aspect ratio is bad enough and swap improves it
+            if (current.innerAspect > aspectThreshold && swapped.innerAspect < current.innerAspect)
                 return true;
 
             return false;
         }
 
         /// <summary>
+        /// Counts the total number of topological inversions across all triangles.
+        /// </summary>
+        private int CountTotalInversions(List<Node> nodes, int[] triangles, IReadOnlyList<Fiber> fibers)
+        {
+            int totalInversions = 0;
+            int triangleCount = triangles.Length / 3;
+
+            for (int i = 0; i < triangleCount; i++)
+            {
+                var tri = GetTriangleNodes(i, triangles);
+                var (inversions, _, _, _) = EvaluateTriangleQuality(tri, nodes, fibers);
+                totalInversions += inversions;
+            }
+
+            return totalInversions;
+        }
+
+        /// <summary>
         /// Calculates priority score for a potential edge swap.
         /// Higher values indicate more important swaps.
         /// Priority hierarchy:
-        /// 1. Inversion elimination (magnitude matters)
-        /// 2. Quality ratio improvement (normalized)
+        /// 1. Inversion elimination (weight: 10000 per inversion)
+        /// 2. Overlap elimination (weight: 1000 per overlap)
+        /// 3. Inner aspect ratio improvement (weight: 100)
+        /// 4. Outer aspect ratio improvement (weight: 10)
         /// </summary>
         private double CalculateSwapPriority(
-            (int inversions, double worstQualityRatio) current,
-            (int inversions, double worstQualityRatio) swapped,
+            (int inversions, int overlaps, double innerAspect, double outerAspect) current,
+            (int inversions, int overlaps, double innerAspect, double outerAspect) swapped,
             List<Node> nodes,
             IReadOnlyList<Fiber> fibers,
             int[] quad)
         {
             double priority = 0;
 
-            // CRITICAL: Inversion reduction (weight: 1000 per inversion)
+            // CRITICAL: Inversion reduction (weight: 10000 per inversion)
             int inversionReduction = current.inversions - swapped.inversions;
             if (inversionReduction > 0)
             {
-                // Calculate magnitude of inversions being fixed
-                double inversionMagnitude = CalculateInversionMagnitude(quad, nodes, fibers);
-                priority += 1000 * inversionReduction * (1 + inversionMagnitude);
+                priority += 10000 * inversionReduction;
             }
 
-            // IMPORTANT: Quality ratio improvement (weight: 1-100)
-            if (current.worstQualityRatio > swapped.worstQualityRatio)
+            // VERY IMPORTANT: Overlap reduction (weight: 1000 per overlap)
+            int overlapReduction = current.overlaps - swapped.overlaps;
+            if (overlapReduction > 0)
             {
-                // Normalize improvement: worse current ratios get higher priority
-                double qualityImprovement = current.worstQualityRatio - swapped.worstQualityRatio;
-                double normalizedImprovement = qualityImprovement / Math.Max(1.0, current.worstQualityRatio);
-                priority += 100 * normalizedImprovement;
+                priority += 1000 * overlapReduction;
+            }
+
+            // IMPORTANT: Inner aspect ratio improvement (weight: 100)
+            // Lower aspect ratio is better
+            double innerImprovement = current.innerAspect - swapped.innerAspect;
+            if (innerImprovement > 0)
+            {
+                priority += 100 * innerImprovement;
+            }
+
+            // NICE TO HAVE: Outer aspect ratio improvement (weight: 10)
+            double outerImprovement = current.outerAspect - swapped.outerAspect;
+            if (outerImprovement > 0)
+            {
+                priority += 10 * outerImprovement;
             }
 
             return priority;
@@ -744,9 +797,9 @@ namespace FxTMeshGenerator.Meshing
 
         /// <summary>
         /// Evaluates the quality of a quadrilateral formed by two adjacent triangles.
-        /// Returns (inversionCount, worstQualityRatio) and outputs the 4-node quadrilateral.
+        /// Returns (inversionCount, overlapCount, maxInnerAspectRatio, maxOuterAspectRatio) and outputs the 4-node quadrilateral.
         /// </summary>
-        private (int inversions, double worstQualityRatio) EvaluateQuadrilateralQuality(
+        private (int inversions, int overlaps, double innerAspect, double outerAspect) EvaluateQuadrilateralQuality(
             int tri1Idx, int tri2Idx, List<Node> nodes, int[] triangles, IReadOnlyList<Fiber> fibers,
             out int[] quad, int[] sharedEdge)
         {
@@ -760,32 +813,36 @@ namespace FxTMeshGenerator.Meshing
             if (quad.Length != 4)
             {
                 // Degenerate case - shouldn't happen
-                return (int.MaxValue, double.MaxValue);
+                return (int.MaxValue, int.MaxValue, double.MaxValue, double.MaxValue);
             }
 
             // Evaluate both triangles
             int totalInversions = 0;
-            double worstQualityRatio = 0;
+            int totalOverlaps = 0;
+            double maxInnerAspect = 0;
+            double maxOuterAspect = 0;
 
             foreach (var tri in new[] { tri1, tri2 })
             {
-                var (inversions, qualityRatio) = EvaluateTriangleQuality(tri, nodes, fibers);
+                var (inversions, overlaps, innerAspect, outerAspect) = EvaluateTriangleQuality(tri, nodes, fibers);
                 totalInversions += inversions;
-                worstQualityRatio = Math.Max(worstQualityRatio, qualityRatio);
+                totalOverlaps += overlaps;
+                maxInnerAspect = Math.Max(maxInnerAspect, innerAspect);
+                maxOuterAspect = Math.Max(maxOuterAspect, outerAspect);
             }
 
-            return (totalInversions, worstQualityRatio);
+            return (totalInversions, totalOverlaps, maxInnerAspect, maxOuterAspect);
         }
 
         /// <summary>
         /// Evaluates what the quality would be if we swapped the diagonal of a quadrilateral.
         /// Uses the EXACT same geometric orientation logic as PerformEdgeSwap to ensure consistency.
         /// </summary>
-        private (int inversions, double worstQualityRatio) EvaluateSwappedQuadrilateralQuality(
+        private (int inversions, int overlaps, double innerAspect, double outerAspect) EvaluateSwappedQuadrilateralQuality(
             int tri1Idx, int tri2Idx, int[] quad, int[] sharedEdge, List<Node> nodes, int[] triangles, IReadOnlyList<Fiber> fibers)
         {
             if (quad.Length != 4)
-                return (int.MaxValue, double.MaxValue);
+                return (int.MaxValue, int.MaxValue, double.MaxValue, double.MaxValue);
 
             // Get the current triangles
             var tri1 = GetTriangleNodes(tri1Idx, triangles);
@@ -841,26 +898,29 @@ namespace FxTMeshGenerator.Meshing
 
         /// <summary>
         /// Evaluates the combined quality of two triangles.
+        /// Returns worst-case metrics across both triangles.
         /// </summary>
-        private (int inversions, double worstQualityRatio) EvaluateTwoTrianglesQuality(
+        private (int inversions, int overlaps, double innerAspect, double outerAspect) EvaluateTwoTrianglesQuality(
             int[] tri1, int[] tri2, List<Node> nodes, IReadOnlyList<Fiber> fibers)
         {
-            var (inv1, quality1) = EvaluateTriangleQuality(tri1, nodes, fibers);
-            var (inv2, quality2) = EvaluateTriangleQuality(tri2, nodes, fibers);
+            var (inv1, overlap1, inner1, outer1) = EvaluateTriangleQuality(tri1, nodes, fibers);
+            var (inv2, overlap2, inner2, outer2) = EvaluateTriangleQuality(tri2, nodes, fibers);
 
-            return (inv1 + inv2, Math.Max(quality1, quality2));
+            return (inv1 + inv2, overlap1 + overlap2, Math.Max(inner1, inner2), Math.Max(outer1, outer2));
         }
 
         /// <summary>
-        /// Evaluates the quality of a single triangle.
-        /// Returns (inversionCount, worstQualityRatio).
-        /// Quality ratio = surfaceDistance / |inversionDistance| for each fiber.
-        /// Higher ratio = worse quality (fiber is close to opposite edge relative to surface spacing).
-        /// Uses interior triangle (fiber surface midpoints) for quality assessment,
-        /// falling back to boundary points when nodes are not fibers.
+        /// Evaluates the quality of a single triangle using aspect ratio.
+        /// Returns (topologicalInversions, elementOverlapCount, innerTriangleAspectRatio, outerTriangleAspectRatio).
+        /// Priority for swapping (lower is better):
+        /// 1. Topological inversions (fiber center outside triangle edge) - CRITICAL
+        /// 2. Element overlaps (fiber surface outside inner triangle) - count how many fibers
+        /// 3. Inner triangle aspect ratio (minimize for good element quality)
+        /// 4. Outer triangle aspect ratio (minimize for good triangle shape)
+        /// Goal: minimize in order of priority.
         /// </summary>
-        private (int inversions, double worstQualityRatio) EvaluateTriangleQuality(
-            int[] triangleNodeIndices, List<Node> nodes, IReadOnlyList<Fiber> fibers)
+        private (int topologicalInversions, int elementOverlaps, double innerAspectRatio, double outerAspectRatio) EvaluateTriangleQuality(int[] triangleNodeIndices, 
+            List<Node> nodes, IReadOnlyList<Fiber> fibers)
         {
             // Get the three nodes
             var nodeA = nodes[triangleNodeIndices[0]];
@@ -893,83 +953,53 @@ namespace FxTMeshGenerator.Meshing
                 }
             }
 
-            // Calculate quality ratio for each fiber and check for inversions
-            int inversionCount = 0;
-            double worstQualityRatio = 0;
+            // Calculate quality metrics
+            int topologicalInversionCount = 0;
+            int elementOverlapCount = 0;
 
             for (int i = 0; i < 3; i++)
             {
-                // Only calculate quality ratio for fiber nodes
+                // Only check fiber nodes
                 if (triangleNodes[i].FiberId.HasValue)
                 {
                     var fiberCenter = triangleNodes[i].P;
                     var otherIndices = GetOtherIndices(i);
                     var interiorPoint1 = interiorPoints[otherIndices[0]];
                     var interiorPoint2 = interiorPoints[otherIndices[1]];
+                    var nodePos1 = triangleNodes[otherIndices[0]].P;
+                    var nodePos2 = triangleNodes[otherIndices[1]].P;
 
-                    // Calculate distance between the two opposite surface points
-                    double surfaceDistance = MathHelper.CalcDistanceBetweenTwoPoints(interiorPoint1, interiorPoint2);
+                    // Priority 1: Topological inversion (fiber center vs node positions)
+                    // This is a triangle-level problem where fiber center crosses the edge
+                    bool topologicalInversion = !SameSide(fiberCenter, interiorPoints[i], nodePos1, nodePos2);
+                    if (topologicalInversion)
+                        topologicalInversionCount++;
 
-                    // Calculate signed distance from fiber center to line between surface points
-                    double signedDist = Side(interiorPoint1, interiorPoint2, fiberCenter);
-                    double inversionDistance = Math.Abs(signedDist);
-
-                    // Check if this is an inversion
-                    bool isInverted = IsInnerTriangleInverted(fiberCenter, interiorPoints[i], interiorPoint1, interiorPoint2);
-                    if (isInverted)
-                        inversionCount++;
-
-                    // Calculate quality ratio: higher = worse
-                    // (fiber is close to opposite edge relative to how far apart the surfaces are)
-                    double qualityRatio;
-                    if (inversionDistance < 1e-10)
-                    {
-                        // Degenerate case: fiber center is essentially on the line
-                        qualityRatio = double.MaxValue;
-                    }
-                    else
-                    {
-                        qualityRatio = surfaceDistance / inversionDistance;
-                    }
-
-                    worstQualityRatio = Math.Max(worstQualityRatio, qualityRatio);
-                }
-                else
-                {
-                    // For boundary nodes, use a simple distance-based quality metric
-                    // This is a fallback and shouldn't dominate fiber-to-fiber quality
-                    var otherIndices = GetOtherIndices(i);
-                    var point1 = interiorPoints[otherIndices[0]];
-                    var point2 = interiorPoints[otherIndices[1]];
-                    var boundaryPoint = interiorPoints[i];
-
-                    // Distance from boundary point to line between other two points
-                    double dist = Math.Abs(Side(point1, point2, boundaryPoint));
-                    double edgeLength = MathHelper.CalcDistanceBetweenTwoPoints(point1, point2);
-
-                    if (dist < 1e-10)
-                    {
-                        // Degenerate triangle
-                        worstQualityRatio = Math.Max(worstQualityRatio, double.MaxValue);
-                    }
-                    else
-                    {
-                        // Use a similar ratio concept
-                        double boundaryRatio = edgeLength / dist;
-                        worstQualityRatio = Math.Max(worstQualityRatio, boundaryRatio);
-                    }
+                    // Priority 2: Element-level overlap (fiber surface vs surface points)
+                    // This determines if the interior element overlaps the fiber
+                    bool elementOverlap = IsInnerTriangleInverted(fiberCenter, interiorPoints[i], interiorPoint1, interiorPoint2);
+                    if (elementOverlap)
+                        elementOverlapCount++;
                 }
             }
 
-            return (inversionCount, worstQualityRatio);
+            // Priority 3: Inner triangle aspect ratio (lower is better)
+            double innerAspectRatio = CalculateAspectRatio(interiorPoints[0], interiorPoints[1], interiorPoints[2]);
+
+            // Priority 4: Outer triangle aspect ratio (lower is better)
+            var outerNodePos0 = triangleNodes[0].P;
+            var outerNodePos1 = triangleNodes[1].P;
+            var outerNodePos2 = triangleNodes[2].P;
+            double outerAspectRatio = CalculateAspectRatio(outerNodePos0, outerNodePos1, outerNodePos2);
+
+            return (topologicalInversionCount, elementOverlapCount, innerAspectRatio, outerAspectRatio);
         }
 
         /// <summary>
         /// Calculates a surface point on a fiber (simplified version without overlap handling).
         /// </summary>
-        private Point2D CalculateFiberSurfacePoint(
-            Point2D fiberCenter, double fiberRadius,
-            Point2D otherPoint1, Point2D otherPoint2)
+        private Point2D CalculateFiberSurfacePoint(Point2D fiberCenter, double fiberRadius,Point2D otherPoint1, 
+            Point2D otherPoint2)
         {
             // Create vectors from fiber center to the other two points
             var vec1 = MathHelper.MakeVector2D(fiberCenter, otherPoint1);
@@ -1047,18 +1077,30 @@ namespace FxTMeshGenerator.Meshing
         /// <summary>
         /// Compares two quality configurations.
         /// Returns true if config1 is better than config2.
-        /// Priority: fewer inversions > better quality ratio (lower is better).
+        /// Priority (in order):
+        /// 1. Fewer topological inversions (CRITICAL)
+        /// 2. Fewer element overlaps (IMPORTANT)
+        /// 3. Lower inner triangle aspect ratio (QUALITY)
+        /// 4. Lower outer triangle aspect ratio (SHAPE)
         /// </summary>
         private bool IsConfigurationBetter(
-            (int inversions, double qualityRatio) config1,
-            (int inversions, double qualityRatio) config2)
+            (int inversions, int overlaps, double innerAspect, double outerAspect) config1,
+            (int inversions, int overlaps, double innerAspect, double outerAspect) config2)
         {
-            // Inversions are critical
+            // Priority 1: Topological inversions are critical
             if (config1.inversions != config2.inversions)
                 return config1.inversions < config2.inversions;
 
-            // Quality ratio is important (lower is better)
-            return config1.qualityRatio < config2.qualityRatio;
+            // Priority 2: Element overlaps are important
+            if (config1.overlaps != config2.overlaps)
+                return config1.overlaps < config2.overlaps;
+
+            // Priority 3: Inner triangle aspect ratio (lower is better)
+            if (Math.Abs(config1.innerAspect - config2.innerAspect) > 0.01)
+                return config1.innerAspect < config2.innerAspect;
+
+            // Priority 4: Outer triangle aspect ratio (lower is better)
+            return config1.outerAspect < config2.outerAspect;
         }
 
         /// <summary>
