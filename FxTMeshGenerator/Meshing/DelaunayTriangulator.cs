@@ -144,26 +144,6 @@ namespace FxTMeshGenerator.Meshing
             return new Delaunator(pts);
         }
 
-        private void CreateVTKFileFromTriangulation(List<Node> uniqueNodes, Delaunator delauny, DebugOptions dOptions, string suffix = "DelaunayTriangulation")
-        {
-            var debugNodes = uniqueNodes.Select(e => new Node(new Point2D(e.P.X, e.P.Y), e.FiberId, e.Type, e.Offset)).ToList();
-            var debugTris = new List<int[]>();
-
-            for (int t = 0; t < delauny.Triangles.Length; t += 3)
-            {
-                debugTris.Add(new int[3] { delauny.Triangles[t], delauny.Triangles[t + 1], delauny.Triangles[t + 2] });
-            }
-            CreateVTKFileFromTriangles(uniqueNodes, debugTris, dOptions, suffix);
-        }
-
-        private void CreateVTKFileFromTriangles(List<Node> uniqueNodes, List<int[]> triangles, DebugOptions dOptions, string suffix = "DelaunayTriangulation")
-        {
-            var debugNodes = uniqueNodes.Select(e => new Node(new Point2D(e.P.X, e.P.Y), e.FiberId, e.Type, e.Offset)).ToList();
-
-            TriangulationMesh2D debugMesh = new TriangulationMesh2D(debugNodes, triangles);
-            IO.VtkLegacyWriter.WriteUnstructuredGrid2D(dOptions.GetDebugFilePath(suffix), debugMesh);
-        }
-
         private (List<Node> cleanedNodes, List<int[]> cleanedTris) RemoveProjectionTriangles(List<Node> uniqueNodes, Delaunator delaunay,
             List<Node> originalFiberNodes, List<Node> cornerNodes, List<Node> edgeNodes, MeshOptions options)
         {
@@ -180,33 +160,8 @@ namespace FxTMeshGenerator.Meshing
                 var ib = delaunay.Triangles[t + 1];
                 var ic = delaunay.Triangles[t + 2];
 
-                var a = uniqueNodes[ia];  // Fixed: use uniqueNodes
-                var b = uniqueNodes[ib];
-                var c = uniqueNodes[ic];
-
-                bool hasOriginalFiber = (a.Type == NodeType.FiberCenter ||
-                                         b.Type == NodeType.FiberCenter ||
-                                         c.Type == NodeType.FiberCenter);
-                bool hasBoundary = (a.Type == NodeType.BoundaryPoint ||
-                                         b.Type == NodeType.BoundaryPoint ||
-                                         c.Type == NodeType.BoundaryPoint);
-
-                // Define which triangles to keep
-                if (hasOriginalFiber || hasBoundary)
+                if (ShouldTheTriangleBeKept(uniqueNodes[ia], uniqueNodes[ib], uniqueNodes[ic]))
                 {
-                    // Reject triangles with specific projected fiber offsets
-                    if ((a.Type == NodeType.ProjectedFiber && (a.Offset.ox == -1 || a.Offset == (0, -1))) ||
-                        (b.Type == NodeType.ProjectedFiber && (b.Offset.ox == -1 || b.Offset == (0, -1))) ||
-                        (c.Type == NodeType.ProjectedFiber && (c.Offset.ox == -1 || c.Offset == (0, -1))))
-                        continue;
-
-                    // Reject triangles with projected boundary vertices
-                    if ((a.Type == NodeType.ProjectedBoundary && (a.Offset.ox == -1 || a.Offset.oy == -1)) ||
-                        (b.Type == NodeType.ProjectedBoundary && (b.Offset.ox == -1 || b.Offset.oy == -1)) ||
-                        (c.Type == NodeType.ProjectedBoundary && (c.Offset.ox == -1 || c.Offset.oy == -1)))
-                        continue;
-                    //continue;
-
                     // Mark these nodes as used
                     usedNodeIndices.Add(ia);
                     usedNodeIndices.Add(ib);
@@ -235,36 +190,10 @@ namespace FxTMeshGenerator.Meshing
                     !usedNodeIndices.Contains(ic))
                     continue;
 
-                var a = uniqueNodes[ia];
-                var b = uniqueNodes[ib];
-                var c = uniqueNodes[ic];
-
-                bool hasOriginalFiber = (a.Type == NodeType.FiberCenter ||
-                                         b.Type == NodeType.FiberCenter ||
-                                         c.Type == NodeType.FiberCenter);
-                bool hasBoundary = (a.Type == NodeType.BoundaryPoint ||
-                                         b.Type == NodeType.BoundaryPoint ||
-                                         c.Type == NodeType.BoundaryPoint);
-
-                if (hasOriginalFiber || hasBoundary)
+                if (ShouldTheTriangleBeKept(uniqueNodes[ia], uniqueNodes[ib], uniqueNodes[ic]))
                 {
-                    if ((a.Type == NodeType.ProjectedFiber && (a.Offset.ox == -1 || a.Offset == (0, -1))) ||
-                        (b.Type == NodeType.ProjectedFiber && (b.Offset.ox == -1 || b.Offset == (0, -1))) ||
-                        (c.Type == NodeType.ProjectedFiber && (c.Offset.ox == -1 || c.Offset == (0, -1))))
-                        continue;
-
-                    if ((a.Type == NodeType.ProjectedBoundary && (a.Offset.ox == -1 || a.Offset.oy == -1 )) ||
-                        (b.Type == NodeType.ProjectedBoundary && (b.Offset.ox == -1 || b.Offset.oy == -1)) ||
-                        (c.Type == NodeType.ProjectedBoundary && (c.Offset.ox == -1 || c.Offset.oy == -1)))
-                    continue;
-
                     // Add triangle with remapped indices ✅
-                    cleanedTris.Add(new int[3]
-                    {
-                oldToNewIndexMap[ia],
-                oldToNewIndexMap[ib],
-                oldToNewIndexMap[ic]
-                    });
+                    cleanedTris.Add(new int[3]{oldToNewIndexMap[ia],oldToNewIndexMap[ib],oldToNewIndexMap[ic]});
                 }
             }
 
@@ -304,6 +233,38 @@ namespace FxTMeshGenerator.Meshing
             }
 
             return (cornerNodes, edgeNodes);
+        }
+
+
+        #region Helper Methods
+
+
+        private bool ShouldTheTriangleBeKept(Node a, Node b, Node c)
+        {
+            bool hasOriginalFiber = (a.Type == NodeType.FiberCenter ||
+                                     b.Type == NodeType.FiberCenter ||
+                                     c.Type == NodeType.FiberCenter);
+            bool hasBoundary = (a.Type == NodeType.BoundaryPoint ||
+                                     b.Type == NodeType.BoundaryPoint ||
+                                     c.Type == NodeType.BoundaryPoint);
+            bool keepTriangle = false;
+            if (hasOriginalFiber || hasBoundary)
+            {
+                if ((a.Type == NodeType.ProjectedFiber && (a.Offset.ox == -1 || a.Offset == (0, -1))) ||
+                    (b.Type == NodeType.ProjectedFiber && (b.Offset.ox == -1 || b.Offset == (0, -1))) ||
+                    (c.Type == NodeType.ProjectedFiber && (c.Offset.ox == -1 || c.Offset == (0, -1))))
+                { }
+
+
+                else if ((a.Type == NodeType.ProjectedBoundary && (a.Offset.ox == -1 || a.Offset.oy == -1)) ||
+                    (b.Type == NodeType.ProjectedBoundary && (b.Offset.ox == -1 || b.Offset.oy == -1)) ||
+                    (c.Type == NodeType.ProjectedBoundary && (c.Offset.ox == -1 || c.Offset.oy == -1)))
+                { }
+
+                else
+                    keepTriangle = true;
+            }
+            return keepTriangle;
         }
 
         private static (List<Node> uniqueNodes, Dictionary<int, int> indexMapping) RemoveDuplicateNodes(List<Node> nodes, double tolerance)
@@ -347,6 +308,256 @@ namespace FxTMeshGenerator.Meshing
             }
 
             return (uniqueNodes, indexMapping);
+        }
+
+        /// <summary>
+        /// Finds all interior edges (edges shared by two triangles, both with 3 fiber nodes).
+        /// Returns list of (triangle1Index, triangle2Index, sharedEdgeNodeIndices[2]).
+        /// </summary>
+        private List<(int tri1, int tri2, int[] sharedEdge)> FindAllInteriorEdges(List<Node> nodes, int[] triangles)
+        {
+            var interiorEdges = new List<(int, int, int[])>();
+            var processedPairs = new HashSet<(int, int)>();
+
+            int triangleCount = triangles.Length / 3;
+
+            for (int i = 0; i < triangleCount; i++)
+            {
+                var tri1 = GetTriangleNodes(i, triangles);
+
+                // Check edges of this triangle
+                var edges = new[] {
+                    new[] { tri1[0], tri1[1] },
+                    new[] { tri1[1], tri1[2] },
+                    new[] { tri1[2], tri1[0] }
+                };
+
+                foreach (var edge in edges)
+                {
+                    // Find adjacent triangle sharing this edge
+                    for (int j = i + 1; j < triangleCount; j++)
+                    {
+                        if (processedPairs.Contains((i, j)))
+                            continue;
+
+                        var tri2 = GetTriangleNodes(j, triangles);
+
+
+                        // Check if tri2 shares this edge
+                        int matchCount = 0;
+                        foreach (var nodeIdx in tri2)
+                        {
+                            if (nodeIdx == edge[0] || nodeIdx == edge[1])
+                                matchCount++;
+                        }
+
+                        if (matchCount == 2)
+                        {
+                            // Found adjacent triangles sharing an edge
+                            // Before adding, check if the quadrilateral is CONVEX
+                            // If concave, swapping would create overlapping triangles
+
+                            // Find the two nodes NOT on the shared edge
+                            var uniqueToTri1 = tri1.Except(edge).First();
+                            var uniqueToTri2 = tri2.Except(edge).First();
+
+                            // Get positions
+                            var p_unique1 = nodes[uniqueToTri1].P;
+                            var p_unique2 = nodes[uniqueToTri2].P;
+                            var p_shared1 = nodes[edge[0]].P;
+                            var p_shared2 = nodes[edge[1]].P;
+
+                            // COMPLETE Convexity check for quadrilateral:
+                            // 1. Unique nodes must be on OPPOSITE sides of current shared edge
+                            double side1 = Side(p_shared1, p_shared2, p_unique1);
+                            double side2 = Side(p_shared1, p_shared2, p_unique2);
+
+                            // 2. Shared edge nodes must be on OPPOSITE sides of new diagonal (unique1-unique2)
+                            double side3 = Side(p_unique1, p_unique2, p_shared1);
+                            double side4 = Side(p_unique1, p_unique2, p_shared2);
+
+                            // Only add if BOTH checks pass (fully convex quadrilateral)
+                            if (side1 * side2 < 0 && side3 * side4 < 0)
+                            {
+                                interiorEdges.Add((i, j, edge));
+                            }
+                            // else: concave quadrilateral or new diagonal exits quad, skip (swap would overlap)
+
+                            processedPairs.Add((i, j));
+                            break;
+                        }
+                    }
+                }
+            }
+
+            return interiorEdges;
+        }
+
+        /// <summary>
+        /// Gets the 3 node indices for a triangle.
+        /// </summary>
+        private int[] GetTriangleNodes(int triangleIndex, int[] triangles)
+        {
+            int baseIdx = triangleIndex * 3;
+            return new[] { triangles[baseIdx], triangles[baseIdx + 1], triangles[baseIdx + 2] };
+        }
+
+        /// <summary>
+        /// Calculates a surface point on a fiber (simplified version without overlap handling).
+        /// </summary>
+        private Point2D CalculateFiberSurfacePoint(Point2D fiberCenter, double fiberRadius, Point2D otherPoint1,
+            Point2D otherPoint2)
+        {
+            // Create vectors from fiber center to the other two points
+            var vec1 = MathHelper.MakeVector2D(fiberCenter, otherPoint1);
+            var vec2 = MathHelper.MakeVector2D(fiberCenter, otherPoint2);
+
+            // Normalize both vectors
+            var vec1Normalized = Normalize(vec1);
+            var vec2Normalized = Normalize(vec2);
+
+            // Use bisector direction
+            var bisectorDirection = new Point2D(
+                vec1Normalized.X + vec2Normalized.X,
+                vec1Normalized.Y + vec2Normalized.Y);
+            var direction = Normalize(bisectorDirection);
+
+            // Calculate point on fiber surface
+            return new Point2D(
+                fiberCenter.X + fiberRadius * direction.X,
+                fiberCenter.Y + fiberRadius * direction.Y);
+        }
+
+        /// <summary>
+        /// Normalizes a 2D vector.
+        /// </summary>
+        private Point2D Normalize(Point2D vector)
+        {
+            double length = Math.Sqrt(vector.X * vector.X + vector.Y * vector.Y);
+            if (length < 1e-10)
+                return new Point2D(1, 0);
+            return new Point2D(vector.X / length, vector.Y / length);
+        }
+
+        /// <summary>
+        /// Returns the indices of the other two elements in a 3-element array.
+        /// </summary>
+        private int[] GetOtherIndices(int currentIndex)
+        {
+            return currentIndex switch
+            {
+                0 => new[] { 1, 2 },
+                1 => new[] { 0, 2 },
+                2 => new[] { 0, 1 },
+                _ => throw new ArgumentOutOfRangeException(nameof(currentIndex))
+            };
+        }
+
+
+        #endregion
+
+
+        #region Methods to help quality evaltuation and re-triangulation decisions
+
+
+
+        /// <summary>
+        /// Performs an edge swap on two adjacent triangles.
+        /// Ensures proper winding order is maintained using geometric orientation.
+        /// </summary>
+        private void PerformEdgeSwap(int tri1Idx, int tri2Idx, int[] sharedEdge, int[] triangles, List<Node> nodes)
+        {
+            // Get current triangles
+            var tri1 = GetTriangleNodes(tri1Idx, triangles);
+            var tri2 = GetTriangleNodes(tri2Idx, triangles);
+
+            // CRITICAL: Recompute the actual shared edge from the current triangle state
+            // The passed-in sharedEdge might be stale if triangles were modified
+            var actualSharedNodes = tri1.Intersect(tri2).ToArray();
+
+            if (actualSharedNodes.Length != 2)
+            {
+                // Invalid configuration - triangles don't share exactly one edge
+                return;
+            }
+
+            // Use the actual shared edge, not the passed-in one
+            int sharedNode1 = actualSharedNodes[0];
+            int sharedNode2 = actualSharedNodes[1];
+
+            // Find the two nodes that are NOT on the shared edge (these form the new diagonal)
+            var uniqueToTri1 = tri1.Except(actualSharedNodes).First();
+            var uniqueToTri2 = tri2.Except(actualSharedNodes).First();
+
+            // Get node positions for orientation checks
+            var p_unique1 = nodes[uniqueToTri1].P;
+            var p_unique2 = nodes[uniqueToTri2].P;
+            var p_shared1 = nodes[sharedNode1].P;
+            var p_shared2 = nodes[sharedNode2].P;
+
+            // COMPLETE CONVEXITY CHECK: The quadrilateral must be convex for the swap to be valid
+            // Check 1: If both unique nodes are on the SAME side of the shared edge, 
+            // the quad is concave and swapping would create overlapping triangles
+            double side1 = Side(p_shared1, p_shared2, p_unique1);
+            double side2 = Side(p_shared1, p_shared2, p_unique2);
+
+            if (side1 * side2 > 0)
+            {
+                // Both unique nodes on same side = concave quadrilateral = swap would overlap
+                // Abort the swap
+                return;
+            }
+
+            // Check 2: Shared edge nodes must be on OPPOSITE sides of the new diagonal
+            // If they're on the same side, the new diagonal exits the quadrilateral
+            double side3 = Side(p_unique1, p_unique2, p_shared1);
+            double side4 = Side(p_unique1, p_unique2, p_shared2);
+
+            if (side3 * side4 > 0)
+            {
+                // Both shared nodes on same side of new diagonal = new diagonal exits quad
+                // Swapping would create overlapping triangles
+                return;
+            }
+
+            int baseTri1 = tri1Idx * 3;
+            int baseTri2 = tri2Idx * 3;
+
+            // Triangle 1: uniqueToTri1, sharedNode1, uniqueToTri2
+            // Check orientation: uniqueToTri1 -> sharedNode1 -> uniqueToTri2
+            double orient1 = Side(p_unique1, p_shared1, p_unique2);
+            if (orient1 > 0)
+            {
+                // CCW
+                triangles[baseTri1] = uniqueToTri1;
+                triangles[baseTri1 + 1] = sharedNode1;
+                triangles[baseTri1 + 2] = uniqueToTri2;
+            }
+            else
+            {
+                // CW: reverse to CCW
+                triangles[baseTri1] = uniqueToTri1;
+                triangles[baseTri1 + 1] = uniqueToTri2;
+                triangles[baseTri1 + 2] = sharedNode1;
+            }
+
+            // Triangle 2: uniqueToTri2, sharedNode2, uniqueToTri1
+            // Check orientation: uniqueToTri2 -> sharedNode2 -> uniqueToTri1
+            double orient2 = Side(p_unique2, p_shared2, p_unique1);
+            if (orient2 > 0)
+            {
+                // CCW
+                triangles[baseTri2] = uniqueToTri2;
+                triangles[baseTri2 + 1] = sharedNode2;
+                triangles[baseTri2 + 2] = uniqueToTri1;
+            }
+            else
+            {
+                // CW: reverse to CCW
+                triangles[baseTri2] = uniqueToTri2;
+                triangles[baseTri2 + 1] = uniqueToTri1;
+                triangles[baseTri2 + 2] = sharedNode2;
+            }
         }
 
         /// <summary>
@@ -408,13 +619,13 @@ namespace FxTMeshGenerator.Meshing
                         inversionsFound++;
 
                     // Track quality improvements (overlaps/aspect ratio, no inversion change)
-                    if (currentQuality.inversions == swappedQuality.inversions && 
+                    if (currentQuality.inversions == swappedQuality.inversions &&
                         IsConfigurationBetter(swappedQuality, currentQuality))
                         qualityImprovementsFound++;
 
                     // Check if swap is worthwhile and not a recent swap (cycle detection)
                     var swapKey = (Math.Min(tri1Idx, tri2Idx), Math.Max(tri1Idx, tri2Idx));
-                    if (IsSwapWorthwhile(currentQuality, swappedQuality, ASPECT_RATIO_THRESHOLD) && 
+                    if (IsSwapWorthwhile(currentQuality, swappedQuality, ASPECT_RATIO_THRESHOLD) &&
                         !recentSwaps.Contains(swapKey))
                     {
                         double priority = CalculateSwapPriority(currentQuality, swappedQuality, uniqueNodes, fibers, quad);
@@ -617,185 +828,6 @@ namespace FxTMeshGenerator.Meshing
         }
 
         /// <summary>
-        /// Calculates the magnitude of inversions in a quadrilateral.
-        /// Returns the maximum signed distance (normalized by fiber radius) of any fiber center
-        /// that crosses to the wrong side of the surface midpoint line.
-        /// </summary>
-        private double CalculateInversionMagnitude(int[] quad, List<Node> nodes, IReadOnlyList<Fiber> fibers)
-        {
-            if (quad.Length != 4)
-                return 0;
-
-            double maxMagnitude = 0;
-
-            // Check all possible triangle combinations in the quad
-            var trianglePairs = new[]
-            {
-                (new[] { quad[0], quad[1], quad[2] }, new[] { quad[0], quad[2], quad[3] }),
-                (new[] { quad[0], quad[1], quad[3] }, new[] { quad[1], quad[2], quad[3] })
-            };
-
-            foreach (var (tri1, tri2) in trianglePairs)
-            {
-                foreach (var tri in new[] { tri1, tri2 })
-                {
-                    var triangleNodes = tri.Select(idx => nodes[idx]).ToArray();
-
-                    // Calculate surface midpoints for fibers or use boundary point directly
-                    var surfacePoints = new Point2D[3];
-                    for (int i = 0; i < 3; i++)
-                    {
-                        var currentNode = triangleNodes[i];
-                        var otherIndices = GetOtherIndices(i);
-                        var otherNode1 = triangleNodes[otherIndices[0]];
-                        var otherNode2 = triangleNodes[otherIndices[1]];
-
-                        // If this is a fiber node, calculate surface point; otherwise use boundary point directly
-                        if (currentNode.FiberId.HasValue)
-                        {
-                            surfacePoints[i] = CalculateFiberSurfacePoint(
-                                currentNode.P, fibers[currentNode.FiberId.Value].Radius,
-                                otherNode1.P, otherNode2.P);
-                        }
-                        else
-                        {
-                            // Boundary node: use its position directly
-                            surfacePoints[i] = currentNode.P;
-                        }
-                    }
-
-                    // Check inversion magnitude for each fiber (skip boundary nodes)
-                    for (int i = 0; i < 3; i++)
-                    {
-                        // Only calculate inversion magnitude for fiber nodes
-                        if (!triangleNodes[i].FiberId.HasValue)
-                            continue;
-
-                        var fiberCenter = triangleNodes[i].P;
-                        var fiberRadius = fibers[triangleNodes[i].FiberId.Value].Radius;
-                        var otherIndices = GetOtherIndices(i);
-                        var surfacePoint1 = surfacePoints[otherIndices[0]];
-                        var surfacePoint2 = surfacePoints[otherIndices[1]];
-
-                        // Calculate signed distance from fiber center to line between surface points
-                        double signedDist = Math.Abs(Side(surfacePoint1, surfacePoint2, fiberCenter));
-                        double normalizedDist = signedDist / Math.Max(fiberRadius, 1e-10);
-
-                        // Check if this is actually an inversion
-                        if (!SameSide(fiberCenter, surfacePoints[i], surfacePoint1, surfacePoint2))
-                        {
-                            maxMagnitude = Math.Max(maxMagnitude, normalizedDist);
-                        }
-                    }
-                }
-            }
-
-            return maxMagnitude;
-        }
-
-        /// <summary>
-        /// Finds all interior edges (edges shared by two triangles, both with 3 fiber nodes).
-        /// Returns list of (triangle1Index, triangle2Index, sharedEdgeNodeIndices[2]).
-        /// </summary>
-        private List<(int tri1, int tri2, int[] sharedEdge)> FindAllInteriorEdges(List<Node> nodes, int[] triangles)
-        {
-            var interiorEdges = new List<(int, int, int[])>();
-            var processedPairs = new HashSet<(int, int)>();
-
-            int triangleCount = triangles.Length / 3;
-
-            for (int i = 0; i < triangleCount; i++)
-            {
-                var tri1 = GetTriangleNodes(i, triangles);
-
-                // Check edges of this triangle
-                var edges = new[] {
-                    new[] { tri1[0], tri1[1] },
-                    new[] { tri1[1], tri1[2] },
-                    new[] { tri1[2], tri1[0] }
-                };
-
-                foreach (var edge in edges)
-                {
-                    // Find adjacent triangle sharing this edge
-                    for (int j = i + 1; j < triangleCount; j++)
-                    {
-                        if (processedPairs.Contains((i, j)))
-                            continue;
-
-                        var tri2 = GetTriangleNodes(j, triangles);
-
-                        
-                        // Check if tri2 shares this edge
-                        int matchCount = 0;
-                        foreach (var nodeIdx in tri2)
-                        {
-                            if (nodeIdx == edge[0] || nodeIdx == edge[1])
-                                matchCount++;
-                        }
-
-                        if (matchCount == 2)
-                        {
-                            // Found adjacent triangles sharing an edge
-                            // Before adding, check if the quadrilateral is CONVEX
-                            // If concave, swapping would create overlapping triangles
-
-                            // Find the two nodes NOT on the shared edge
-                            var uniqueToTri1 = tri1.Except(edge).First();
-                            var uniqueToTri2 = tri2.Except(edge).First();
-
-                            // Get positions
-                            var p_unique1 = nodes[uniqueToTri1].P;
-                            var p_unique2 = nodes[uniqueToTri2].P;
-                            var p_shared1 = nodes[edge[0]].P;
-                            var p_shared2 = nodes[edge[1]].P;
-
-                            // COMPLETE Convexity check for quadrilateral:
-                            // 1. Unique nodes must be on OPPOSITE sides of current shared edge
-                            double side1 = Side(p_shared1, p_shared2, p_unique1);
-                            double side2 = Side(p_shared1, p_shared2, p_unique2);
-
-                            // 2. Shared edge nodes must be on OPPOSITE sides of new diagonal (unique1-unique2)
-                            double side3 = Side(p_unique1, p_unique2, p_shared1);
-                            double side4 = Side(p_unique1, p_unique2, p_shared2);
-
-                            // Only add if BOTH checks pass (fully convex quadrilateral)
-                            if (side1 * side2 < 0 && side3 * side4 < 0)
-                            {
-                                interiorEdges.Add((i, j, edge));
-                            }
-                            // else: concave quadrilateral or new diagonal exits quad, skip (swap would overlap)
-
-                            processedPairs.Add((i, j));
-                            break;
-                        }
-                    }
-                }
-            }
-
-            return interiorEdges;
-        }
-
-        /// <summary>
-        /// Checks if a triangle has 3 fiber nodes (original or projected).
-        /// </summary>
-        private bool IsInteriorTriangle(int[] triangleNodeIndices, List<Node> nodes)
-        {
-            return triangleNodeIndices.All(idx => 
-                nodes[idx].Type == NodeType.FiberCenter || 
-                nodes[idx].Type == NodeType.ProjectedFiber);
-        }
-
-        /// <summary>
-        /// Gets the 3 node indices for a triangle.
-        /// </summary>
-        private int[] GetTriangleNodes(int triangleIndex, int[] triangles)
-        {
-            int baseIdx = triangleIndex * 3;
-            return new[] { triangles[baseIdx], triangles[baseIdx + 1], triangles[baseIdx + 2] };
-        }
-
-        /// <summary>
         /// Evaluates the quality of a quadrilateral formed by two adjacent triangles.
         /// Returns (inversionCount, overlapCount, maxInnerAspectRatio, maxOuterAspectRatio) and outputs the 4-node quadrilateral.
         /// </summary>
@@ -919,7 +951,7 @@ namespace FxTMeshGenerator.Meshing
         /// 4. Outer triangle aspect ratio (minimize for good triangle shape)
         /// Goal: minimize in order of priority.
         /// </summary>
-        private (int topologicalInversions, int elementOverlaps, double innerAspectRatio, double outerAspectRatio) EvaluateTriangleQuality(int[] triangleNodeIndices, 
+        private (int topologicalInversions, int elementOverlaps, double innerAspectRatio, double outerAspectRatio) EvaluateTriangleQuality(int[] triangleNodeIndices,
             List<Node> nodes, IReadOnlyList<Fiber> fibers)
         {
             // Get the three nodes
@@ -996,43 +1028,6 @@ namespace FxTMeshGenerator.Meshing
         }
 
         /// <summary>
-        /// Calculates a surface point on a fiber (simplified version without overlap handling).
-        /// </summary>
-        private Point2D CalculateFiberSurfacePoint(Point2D fiberCenter, double fiberRadius,Point2D otherPoint1, 
-            Point2D otherPoint2)
-        {
-            // Create vectors from fiber center to the other two points
-            var vec1 = MathHelper.MakeVector2D(fiberCenter, otherPoint1);
-            var vec2 = MathHelper.MakeVector2D(fiberCenter, otherPoint2);
-
-            // Normalize both vectors
-            var vec1Normalized = Normalize(vec1);
-            var vec2Normalized = Normalize(vec2);
-
-            // Use bisector direction
-            var bisectorDirection = new Point2D(
-                vec1Normalized.X + vec2Normalized.X,
-                vec1Normalized.Y + vec2Normalized.Y);
-            var direction = Normalize(bisectorDirection);
-
-            // Calculate point on fiber surface
-            return new Point2D(
-                fiberCenter.X + fiberRadius * direction.X,
-                fiberCenter.Y + fiberRadius * direction.Y);
-        }
-
-        /// <summary>
-        /// Normalizes a 2D vector.
-        /// </summary>
-        private Point2D Normalize(Point2D vector)
-        {
-            double length = Math.Sqrt(vector.X * vector.X + vector.Y * vector.Y);
-            if (length < 1e-10)
-                return new Point2D(1, 0);
-            return new Point2D(vector.X / length, vector.Y / length);
-        }
-
-        /// <summary>
         /// Checks if a fiber center crosses the line connecting two surface points (inversion check).
         /// Uses signed distance to determine which side of the line the fiber is on.
         /// </summary>
@@ -1103,103 +1098,30 @@ namespace FxTMeshGenerator.Meshing
             return config1.outerAspect < config2.outerAspect;
         }
 
-        /// <summary>
-        /// Performs an edge swap on two adjacent triangles.
-        /// Ensures proper winding order is maintained using geometric orientation.
-        /// </summary>
-        private void PerformEdgeSwap(int tri1Idx, int tri2Idx, int[] sharedEdge, int[] triangles, List<Node> nodes)
+        #endregion
+
+
+        #region Error Handling, debugging, Logging
+
+
+        private void CreateVTKFileFromTriangulation(List<Node> uniqueNodes, Delaunator delauny, DebugOptions dOptions, string suffix = "DelaunayTriangulation")
         {
-            // Get current triangles
-            var tri1 = GetTriangleNodes(tri1Idx, triangles);
-            var tri2 = GetTriangleNodes(tri2Idx, triangles);
+            var debugNodes = uniqueNodes.Select(e => new Node(new Point2D(e.P.X, e.P.Y), e.FiberId, e.Type, e.Offset)).ToList();
+            var debugTris = new List<int[]>();
 
-            // CRITICAL: Recompute the actual shared edge from the current triangle state
-            // The passed-in sharedEdge might be stale if triangles were modified
-            var actualSharedNodes = tri1.Intersect(tri2).ToArray();
-
-            if (actualSharedNodes.Length != 2)
+            for (int t = 0; t < delauny.Triangles.Length; t += 3)
             {
-                // Invalid configuration - triangles don't share exactly one edge
-                return;
+                debugTris.Add(new int[3] { delauny.Triangles[t], delauny.Triangles[t + 1], delauny.Triangles[t + 2] });
             }
+            CreateVTKFileFromTriangles(uniqueNodes, debugTris, dOptions, suffix);
+        }
 
-            // Use the actual shared edge, not the passed-in one
-            int sharedNode1 = actualSharedNodes[0];
-            int sharedNode2 = actualSharedNodes[1];
+        private void CreateVTKFileFromTriangles(List<Node> uniqueNodes, List<int[]> triangles, DebugOptions dOptions, string suffix = "DelaunayTriangulation")
+        {
+            var debugNodes = uniqueNodes.Select(e => new Node(new Point2D(e.P.X, e.P.Y), e.FiberId, e.Type, e.Offset)).ToList();
 
-            // Find the two nodes that are NOT on the shared edge (these form the new diagonal)
-            var uniqueToTri1 = tri1.Except(actualSharedNodes).First();
-            var uniqueToTri2 = tri2.Except(actualSharedNodes).First();
-
-            // Get node positions for orientation checks
-            var p_unique1 = nodes[uniqueToTri1].P;
-            var p_unique2 = nodes[uniqueToTri2].P;
-            var p_shared1 = nodes[sharedNode1].P;
-            var p_shared2 = nodes[sharedNode2].P;
-
-            // COMPLETE CONVEXITY CHECK: The quadrilateral must be convex for the swap to be valid
-            // Check 1: If both unique nodes are on the SAME side of the shared edge, 
-            // the quad is concave and swapping would create overlapping triangles
-            double side1 = Side(p_shared1, p_shared2, p_unique1);
-            double side2 = Side(p_shared1, p_shared2, p_unique2);
-
-            if (side1 * side2 > 0)
-            {
-                // Both unique nodes on same side = concave quadrilateral = swap would overlap
-                // Abort the swap
-                return;
-            }
-
-            // Check 2: Shared edge nodes must be on OPPOSITE sides of the new diagonal
-            // If they're on the same side, the new diagonal exits the quadrilateral
-            double side3 = Side(p_unique1, p_unique2, p_shared1);
-            double side4 = Side(p_unique1, p_unique2, p_shared2);
-
-            if (side3 * side4 > 0)
-            {
-                // Both shared nodes on same side of new diagonal = new diagonal exits quad
-                // Swapping would create overlapping triangles
-                return;
-            }
-
-            int baseTri1 = tri1Idx * 3;
-            int baseTri2 = tri2Idx * 3;
-
-            // Triangle 1: uniqueToTri1, sharedNode1, uniqueToTri2
-            // Check orientation: uniqueToTri1 -> sharedNode1 -> uniqueToTri2
-            double orient1 = Side(p_unique1, p_shared1, p_unique2);
-            if (orient1 > 0)
-            {
-                // CCW
-                triangles[baseTri1] = uniqueToTri1;
-                triangles[baseTri1 + 1] = sharedNode1;
-                triangles[baseTri1 + 2] = uniqueToTri2;
-            }
-            else
-            {
-                // CW: reverse to CCW
-                triangles[baseTri1] = uniqueToTri1;
-                triangles[baseTri1 + 1] = uniqueToTri2;
-                triangles[baseTri1 + 2] = sharedNode1;
-            }
-
-            // Triangle 2: uniqueToTri2, sharedNode2, uniqueToTri1
-            // Check orientation: uniqueToTri2 -> sharedNode2 -> uniqueToTri1
-            double orient2 = Side(p_unique2, p_shared2, p_unique1);
-            if (orient2 > 0)
-            {
-                // CCW
-                triangles[baseTri2] = uniqueToTri2;
-                triangles[baseTri2 + 1] = sharedNode2;
-                triangles[baseTri2 + 2] = uniqueToTri1;
-            }
-            else
-            {
-                // CW: reverse to CCW
-                triangles[baseTri2] = uniqueToTri2;
-                triangles[baseTri2 + 1] = uniqueToTri1;
-                triangles[baseTri2 + 2] = sharedNode2;
-            }
+            TriangulationMesh2D debugMesh = new TriangulationMesh2D(debugNodes, triangles);
+            IO.VtkLegacyWriter.WriteUnstructuredGrid2D(dOptions.GetDebugFilePath(suffix), debugMesh);
         }
 
         /// <summary>
@@ -1257,641 +1179,11 @@ namespace FxTMeshGenerator.Meshing
             }
         }
 
-        /// <summary>
-        /// Returns the indices of the other two elements in a 3-element array.
-        /// </summary>
-        private int[] GetOtherIndices(int currentIndex)
-        {
-            return currentIndex switch
-            {
-                0 => new[] { 1, 2 },
-                1 => new[] { 0, 2 },
-                2 => new[] { 0, 1 },
-                _ => throw new ArgumentOutOfRangeException(nameof(currentIndex))
-            };
-        }
+        #endregion
 
-        /// <summary>
-        /// DEPRECATED: Old reactive overlap fixing approach.
-        /// Replaced by OptimizeTriangulationQuality which runs before filtering.
-        /// </summary>
-        private void FindAndFixOverlappingTriads_DEPRECATED(List<Node> nodes, List<int[]> triangles, IReadOnlyList<Fiber> fibers, DebugOptions dOptions, int maxAttemptsPerPair = 5)
-        {
-            int totalIterations = 0;
-            int swapCount = 0;
 
-            // Track how many times we've attempted to fix each triad pair to detect cycles
-            var triadPairAttempts = new Dictionary<(int, int), int>();
-            var skippedTriads = new HashSet<int>();
+        #region Helper Classes
 
-            bool foundOverlap;
-
-            do
-            {
-                foundOverlap = false;
-                totalIterations++;
-
-                // Recreate triads at the start of each iteration to reflect any swaps
-                var triads = CreateTriadsFromTriangles(triangles, nodes, fibers);
-                Console.WriteLine($"\nIteration {totalIterations}: Checking {triads.Count} triads for overlaps");
-
-                for (int i = 0; i < triads.Count; i++)
-                {
-                    if (triads[i].DetermineIfFibersOverlapTriad())
-                    {
-                        // Check if we've already given up on this triad
-                        if (skippedTriads.Contains(triads[i].Number))
-                        {
-                            Console.WriteLine($"  Overlap in triad {triads[i].Number} (already skipped, continuing scan...)");
-                            continue; // Continue scanning for other overlaps
-                        }
-
-                        foundOverlap = true;
-                        Console.WriteLine($"  Overlap detected in triad {triads[i].Number}");
-
-                        // Try to retriangulate and track which pair we're working with
-                        int otherTriadNumber = -1;
-                        bool swapped = RetriangulateAndTrackPair(triads[i], triads, triangles, nodes, fibers, dOptions, out otherTriadNumber);
-
-                        if (swapped && otherTriadNumber != -1)
-                        {
-                            // Track this swap attempt
-                            var pairKey = (Math.Min(triads[i].Number, otherTriadNumber), 
-                                          Math.Max(triads[i].Number, otherTriadNumber));
-
-                            if (!triadPairAttempts.ContainsKey(pairKey))
-                                triadPairAttempts[pairKey] = 0;
-
-                            triadPairAttempts[pairKey]++;
-
-                            swapCount++;
-                            Console.WriteLine($"  -> Swap #{swapCount} performed (attempt #{triadPairAttempts[pairKey]} for pair [{pairKey.Item1}, {pairKey.Item2}])");
-
-                            // Check if we've tried this pair too many times (cycle detected)
-                            if (triadPairAttempts[pairKey] >= maxAttemptsPerPair)
-                            {
-                                Console.WriteLine($"  -> GIVING UP on triads {pairKey.Item1} and {pairKey.Item2} after {maxAttemptsPerPair} attempts (likely stuck in cycle)");
-                                skippedTriads.Add(pairKey.Item1);
-                                skippedTriads.Add(pairKey.Item2);
-                            }
-
-                            // Debug: Create VTK file after each swap
-                            if (dOptions.Debug)
-                            {
-                                CreateVTKFileFromTriangles(nodes, triangles, dOptions);
-                            }
-
-                            break; // Restart search with fresh triads after modifying triangulation
-                        }
-                        else if (!swapped)
-                        {
-                            Console.WriteLine($"  -> No adjacent triad found for swap, skipping this triad");
-                            skippedTriads.Add(triads[i].Number);
-                            // Don't break - continue checking remaining triads
-                        }
-                    }
-                }
-
-                // Safety limit on total iterations
-                if (totalIterations >= 100)
-                {
-                    Console.WriteLine($"Warning: Reached maximum total iterations (100). Stopping overlap fixing.");
-                    foundOverlap = false;
-                }
-            }
-            while (foundOverlap);
-
-            // Final summary
-            Console.WriteLine($"\n=== Overlap fixing complete ===");
-            Console.WriteLine($"Total iterations: {totalIterations}");
-            Console.WriteLine($"Total swaps performed: {swapCount}");
-            Console.WriteLine($"Triad pairs skipped due to cycles: {triadPairAttempts.Count(kvp => kvp.Value >= maxAttemptsPerPair)}");
-
-            // Final scan to report all remaining overlaps
-            Console.WriteLine($"\n=== Final overlap scan ===");
-            var finalTriads = CreateTriadsFromTriangles(triangles, nodes, fibers);
-            int totalOverlaps = 0;
-            for (int i = 0; i < finalTriads.Count; i++)
-            {
-                if (finalTriads[i].DetermineIfFibersOverlapTriad())
-                {
-                    totalOverlaps++;
-                    Console.WriteLine($"  Overlap remains in triad {i}");
-                }
-            }
-            Console.WriteLine($"Total overlaps remaining: {totalOverlaps}");
-        }
-
-        /// <summary>
-        /// Retriangulates and returns the other triad number involved in the swap.
-        /// First evaluates if the swap would improve the situation before performing it.
-        /// </summary>
-        private bool RetriangulateAndTrackPair(Triad overlappingTriad, List<Triad> allTriads, List<int[]> triangles, List<Node> nodes, IReadOnlyList<Fiber> fibers, DebugOptions dOptions, out int otherTriadNumber)
-        {
-            otherTriadNumber = -1;
-
-            // Find which fibers don't overlap
-            int[] nonOverlapFiberIndices = Enumerable.Range(0, 3)
-                .Where(i => overlappingTriad.FibersWhichOverlapTriad[i] == 0)
-                .ToArray();
-
-            if (nonOverlapFiberIndices.Length != 2)
-                return false;
-
-            int overlapFiberIdx = Enumerable.Range(0, 3)
-                .First(i => overlappingTriad.FibersWhichOverlapTriad[i] != 0);
-
-            int edgeIdx = FindEdgeConnectingFibers(nonOverlapFiberIndices[0], nonOverlapFiberIndices[1]);
-
-            int[] nonOverlappingEdge = new[]
-            {
-                overlappingTriad.Edges[edgeIdx, 0],
-                overlappingTriad.Edges[edgeIdx, 1]
-            };
-
-            // Find the adjacent triad sharing this edge
-            foreach (var otherTriad in allTriads)
-            {
-                if (otherTriad.Number == overlappingTriad.Number)
-                    continue;
-
-                int[] otherTriadFibers = new[]
-                {
-                    otherTriad.Edges[0, 0],
-                    otherTriad.Edges[0, 1],
-                    otherTriad.Edges[1, 1]
-                }.Distinct().ToArray();
-
-                if (Triad.IsFiberPairInTriad(nonOverlappingEdge, otherTriadFibers))
-                {
-                    otherTriadNumber = otherTriad.Number;
-
-                    // EVALUATE: Check if swap would actually improve things
-                    int currentOverlaps = CountOverlapsInTriadPair(overlappingTriad, otherTriad);
-                    int swappedOverlaps = EvaluateSwapOverlaps(overlappingTriad, otherTriad, triangles, nodes, fibers);
-
-                    Console.WriteLine($"    Evaluating swap: current={currentOverlaps} overlaps, after_swap={swappedOverlaps} overlaps");
-
-                    if (swappedOverlaps < currentOverlaps)
-                    {
-                        // Swap improves the situation - do it!
-                        Console.WriteLine($"    -> Swap will improve! Performing swap...");
-                        SwapTriangleDiagonal(overlappingTriad, otherTriad, overlapFiberIdx, triangles, nodes);
-                        return true;
-                    }
-                    else if (swappedOverlaps == currentOverlaps && currentOverlaps > 0)
-                    {
-                        // No improvement from simple swap - try cavity retriangulation
-                        Console.WriteLine($"    -> Simple swap won't help. Trying CAVITY RETRIANGULATION...");
-                        bool cavityFixed = TryCavityRetriangulation(overlappingTriad, otherTriad, allTriads, triangles, nodes, fibers, dOptions);
-
-                        if (cavityFixed)
-                        {
-                            Console.WriteLine($"    -> Cavity retriangulation succeeded!");
-                            return true;
-                        }
-                        else
-                        {
-                            Console.WriteLine($"    -> Cavity retriangulation failed. Skipping this triad pair.");
-                            return false;
-                        }
-                    }
-                    else
-                    {
-                        Console.WriteLine($"    -> Swap would make things worse. Skipping.");
-                        return false;
-                    }
-                }
-            }
-
-            return false;
-        }
-
-        /// <summary>
-        /// Creates Triad objects from triangle connectivity.
-        /// Creates triads for triangles with THREE fiber nodes (original or projected).
-        /// </summary>
-        private List<Triad> CreateTriadsFromTriangles(List<int[]> triangles, List<Node> nodes, IReadOnlyList<Fiber> fibers)
-        {
-            var triads = new List<Triad>();
-
-            for (int i = 0; i < triangles.Count; i++)
-            {
-                var tri = triangles[i];
-                var nodeA = nodes[tri[0]];
-                var nodeB = nodes[tri[1]];
-                var nodeC = nodes[tri[2]];
-
-                // Create triads for triangles with THREE fiber nodes (original or projected)
-                // Exclude triangles with boundary nodes
-                if (nodeA.FiberId.HasValue && nodeB.FiberId.HasValue && nodeC.FiberId.HasValue &&
-                    (nodeA.Type == NodeType.FiberCenter || nodeA.Type == NodeType.ProjectedFiber) && 
-                    (nodeB.Type == NodeType.FiberCenter || nodeB.Type == NodeType.ProjectedFiber) && 
-                    (nodeC.Type == NodeType.FiberCenter || nodeC.Type == NodeType.ProjectedFiber))
-                {
-                    var triadFibers = new[]
-                    {
-                        fibers[nodeA.FiberId.Value],
-                        fibers[nodeB.FiberId.Value],
-                        fibers[nodeC.FiberId.Value]
-                    };
-
-                    // Pass actual node positions (which include projection offsets)
-                    var nodePositions = new[]
-                    {
-                        nodeA.P,
-                        nodeB.P,
-                        nodeC.P
-                    };
-
-                    var triad = new Triad(i, triadFibers, nodePositions);
-                    triad.SetEdgesWithFiberIndices(
-                        nodeA.FiberId.Value,
-                        nodeB.FiberId.Value,
-                        nodeC.FiberId.Value);
-
-                    triads.Add(triad);
-                }
-            }
-
-            return triads;
-        }
-
-        /// <summary>
-        /// Retriangulates by swapping the diagonal of two adjacent triangles.
-        /// Returns true if a swap was performed, false otherwise.
-        /// </summary>
-        private bool Retriangulate(Triad overlappingTriad, List<Triad> allTriads, List<int[]> triangles, List<Node> nodes)
-        {
-            Console.WriteLine($"\n--- Retriangulating Triad {overlappingTriad.Number} ---");
-
-            // Get the triangle nodes to see actual positions
-            var tri = triangles[overlappingTriad.Number];
-            Console.WriteLine($"Triangle nodes: [{tri[0]}, {tri[1]}, {tri[2]}]");
-            Console.WriteLine($"  Node {tri[0]}: FiberId={nodes[tri[0]].FiberId}, Pos=({nodes[tri[0]].P.X:F3}, {nodes[tri[0]].P.Y:F3}), Offset={nodes[tri[0]].Offset}");
-            Console.WriteLine($"  Node {tri[1]}: FiberId={nodes[tri[1]].FiberId}, Pos=({nodes[tri[1]].P.X:F3}, {nodes[tri[1]].P.Y:F3}), Offset={nodes[tri[1]].Offset}");
-            Console.WriteLine($"  Node {tri[2]}: FiberId={nodes[tri[2]].FiberId}, Pos=({nodes[tri[2]].P.X:F3}, {nodes[tri[2]].P.Y:F3}), Offset={nodes[tri[2]].Offset}");
-
-            // ... rest of existing code
-            // Find which fibers don't overlap
-            int[] nonOverlapFiberIndices = Enumerable.Range(0, 3)
-                .Where(i => overlappingTriad.FibersWhichOverlapTriad[i] == 0)
-                .ToArray();
-
-            if (nonOverlapFiberIndices.Length != 2)
-                return false; // Can't retriangulate if we don't have exactly one overlapping fiber
-
-            int overlapFiberIdx = Enumerable.Range(0, 3)
-                .First(i => overlappingTriad.FibersWhichOverlapTriad[i] != 0);
-
-            // Find which edge connects the two non-overlapping fibers
-            int edgeIdx = FindEdgeConnectingFibers(nonOverlapFiberIndices[0], nonOverlapFiberIndices[1]);
-
-            // Get the actual fiber IDs from that edge
-            int[] nonOverlappingEdge = new[]
-            {
-                overlappingTriad.Edges[edgeIdx, 0],
-                overlappingTriad.Edges[edgeIdx, 1]
-            };
-
-            // Find the adjacent triad sharing this edge
-            foreach (var otherTriad in allTriads)
-            {
-                if (otherTriad.Number == overlappingTriad.Number)
-                    continue;
-
-                // Get all three fiber IDs from the other triad
-                int[] otherTriadFibers = new[]
-                {
-                    otherTriad.Edges[0, 0],  // Fiber from edge 0
-                    otherTriad.Edges[0, 1],  // Fiber from edge 0
-                    otherTriad.Edges[1, 1]   // Third fiber (not in edge 0)
-                }.Distinct().ToArray();
-
-                if (Triad.IsFiberPairInTriad(nonOverlappingEdge, otherTriadFibers))
-                {
-                    // Swap the diagonal (matching MATLAB behavior - no boundary check)
-                    SwapTriangleDiagonal(overlappingTriad, otherTriad, overlapFiberIdx, triangles, nodes);
-                    return true; // Swap performed
-                }
-            }
-
-            return false; // No adjacent triad found
-        }
-
-        /// <summary>
-        /// Checks if a triangle is adjacent to any boundary nodes.
-        /// Returns true if the triangle shares an edge with another triangle that contains boundary nodes.
-        /// </summary>
-        private bool IsAdjacentToBoundary(int triangleIndex, List<int[]> triangles, List<Node> nodes)
-        {
-            var tri = triangles[triangleIndex];
-
-            // Check all other triangles to see if they share an edge with this one
-            for (int i = 0; i < triangles.Count; i++)
-            {
-                if (i == triangleIndex) continue;
-
-                var otherTri = triangles[i];
-
-                // Count how many nodes are shared between the two triangles
-                int sharedNodes = 0;
-                for (int j = 0; j < 3; j++)
-                {
-                    for (int k = 0; k < 3; k++)
-                    {
-                        if (tri[j] == otherTri[k])
-                        {
-                            sharedNodes++;
-                            break;
-                        }
-                    }
-                }
-
-                // If they share exactly 2 nodes, they share an edge
-                if (sharedNodes == 2)
-                {
-                    // Check if the other triangle has any boundary nodes
-                    for (int j = 0; j < 3; j++)
-                    {
-                        var nodeType = nodes[otherTri[j]].Type;
-                        if (nodeType == NodeType.BoundaryPoint || 
-                            nodeType == NodeType.BoundaryCorner)
-                        {
-                            return true;
-                        }
-                    }
-                }
-            }
-
-            return false;
-        }
-
-        /// <summary>
-        /// Finds which edge index connects two local fiber indices.
-        /// </summary>
-        private static int FindEdgeConnectingFibers(int fiberIdx1, int fiberIdx2)
-        {
-            // Edges are defined as:
-            // Edge 0: fibers 0-1
-            // Edge 1: fibers 0-2
-            // Edge 2: fibers 1-2
-
-            var pair = new HashSet<int> { fiberIdx1, fiberIdx2 };
-
-            if (pair.SetEquals(new[] { 0, 1 })) return 0;
-            if (pair.SetEquals(new[] { 0, 2 })) return 1;
-            if (pair.SetEquals(new[] { 1, 2 })) return 2;
-
-            throw new InvalidOperationException($"Invalid fiber indices: {fiberIdx1}, {fiberIdx2}");
-        }
-
-        /// <summary>
-        /// Swaps the diagonal between two triangles sharing an edge.
-        /// </summary>
-        private void SwapTriangleDiagonal(Triad triad1, Triad triad2, int overlapFiberIdx, List<int[]> triangles, List<Node> nodes)
-        {
-            // Get all unique fiber IDs from each triad
-            var fibers1Set = new HashSet<int> { triad1.Edges[0, 0], triad1.Edges[0, 1], triad1.Edges[1, 1] };
-
-            var fibers2Set = new HashSet<int> { triad2.Edges[0, 0], triad2.Edges[0, 1], triad2.Edges[1, 1] };
-
-            // Find the fiber unique to each triad (not on the shared edge)
-            int uniqueFiberInTriad1 = fibers1Set.Except(fibers2Set).First();
-            int uniqueFiberInTriad2 = fibers2Set.Except(fibers1Set).First();
-
-            // Get triangle connectivity arrays
-            var tri1 = triangles[triad1.Number];
-            var tri2 = triangles[triad2.Number];
-
-            // Find which positions in each triangle to replace
-            //find the first non-unique fiber in T1
-            //Then, you will replace the other one in T2
-            int posToReplaceInTri1 = Enumerable.Range(0, 3).First(i => nodes[tri1[i]].FiberId != uniqueFiberInTriad1);
-            int fiberIdAtPosToReplaceInTri1 = nodes[tri1[posToReplaceInTri1]].FiberId.Value;
-            int posToReplaceInTri2 = Enumerable.Range(0, 3).First(i =>
-                nodes[tri2[i]].FiberId != uniqueFiberInTriad2 &&
-                nodes[tri2[i]].FiberId != fiberIdAtPosToReplaceInTri1);
-
-            // Get the NODE INDICES for the fibers we want to swap in (matching offsets)
-            int nodeToSwapIntoTri1 = FindNodeIndexForFiberMatchingOffset(nodes, uniqueFiberInTriad2, tri1);
-            int nodeToSwapIntoTri2 = FindNodeIndexForFiberMatchingOffset(nodes, uniqueFiberInTriad1, tri2);
-
-            // Perform the swap
-            Console.WriteLine($"    Before swap: tri1=[{tri1[0]},{tri1[1]},{tri1[2]}], tri2=[{tri2[0]},{tri2[1]},{tri2[2]}]");
-            tri1[posToReplaceInTri1] = nodeToSwapIntoTri1;
-            tri2[posToReplaceInTri2] = nodeToSwapIntoTri2;
-            Console.WriteLine($"    After swap:  tri1=[{tri1[0]},{tri1[1]},{tri1[2]}], tri2=[{tri2[0]},{tri2[1]},{tri2[2]}]");
-
-            // Update the triad's edge information after swap
-            UpdateTriadAfterSwap(triad1, nodes, tri1);
-            UpdateTriadAfterSwap(triad2, nodes, tri2);
-        }
-
-        /// <summary>
-        /// Finds the node index for a given fiber ID that matches the offset of existing nodes in a triangle.
-        /// For periodic boundaries, we need to find the node with matching offset.
-        /// </summary>
-        private int FindNodeIndexForFiberMatchingOffset(List<Node> nodes, int fiberId, int[] triangleConnectivity)
-        {
-            // Determine the offset from existing nodes in the triangle
-            // (all nodes in a triangle should have the same offset for periodic consistency)
-            (int ox, int oy) targetOffset = (0, 0);
-
-            for (int i = 0; i < triangleConnectivity.Length; i++)
-            {
-                var node = nodes[triangleConnectivity[i]];
-                if (node.FiberId.HasValue)
-                {
-                    targetOffset = node.Offset;
-                    break;
-                }
-            }
-
-            // Find node with matching FiberId AND Offset
-            for (int i = 0; i < nodes.Count; i++)
-            {
-                if (nodes[i].FiberId == fiberId && nodes[i].Offset == targetOffset)
-                    return i;
-            }
-
-            // Fallback: if no offset match found, return first match (shouldn't happen for periodic)
-            for (int i = 0; i < nodes.Count; i++)
-            {
-                if (nodes[i].FiberId == fiberId)
-                {
-                    Console.WriteLine($"Warning: No offset match for fiber {fiberId}, using first occurrence");
-                    return i;
-                }
-            }
-
-            throw new InvalidOperationException($"Could not find node for fiber {fiberId}");
-        }
-
-        /// <summary>
-        /// Updates a triad's internal state after connectivity changes.
-        /// </summary>
-        private void UpdateTriadAfterSwap(Triad triad, List<Node> nodes, int[] triangleConnectivity)
-        {
-            // Get the three fiber IDs in the new triangle
-            var fiberIds = triangleConnectivity
-                .Select(nodeIdx => nodes[nodeIdx].FiberId.Value)
-                .ToArray();
-
-            // Update the edges
-            triad.SetEdgesWithFiberIndices(fiberIds[0], fiberIds[1], fiberIds[2]);
-        }
-
-        /// <summary>
-        /// Counts how many triads in a pair have overlaps.
-        /// </summary>
-        private int CountOverlapsInTriadPair(Triad triad1, Triad triad2)
-        {
-            int count = 0;
-            if (triad1.DetermineIfFibersOverlapTriad()) count++;
-            if (triad2.DetermineIfFibersOverlapTriad()) count++;
-            return count;
-        }
-
-        /// <summary>
-        /// Evaluates how many overlaps would exist after a swap (without actually performing it).
-        /// </summary>
-        private int EvaluateSwapOverlaps(Triad triad1, Triad triad2, List<int[]> triangles, List<Node> nodes, IReadOnlyList<Fiber> fibers)
-        {
-            // Get fiber sets
-            var fibers1Set = new HashSet<int> { triad1.Edges[0, 0], triad1.Edges[0, 1], triad1.Edges[1, 1] };
-            var fibers2Set = new HashSet<int> { triad2.Edges[0, 0], triad2.Edges[0, 1], triad2.Edges[1, 1] };
-
-            int uniqueFiberInTriad1 = fibers1Set.Except(fibers2Set).First();
-            int uniqueFiberInTriad2 = fibers2Set.Except(fibers1Set).First();
-
-            // Get triangle connectivity
-            var tri1 = triangles[triad1.Number];
-            var tri2 = triangles[triad2.Number];
-
-            // Find positions to replace
-            int posToReplaceInTri1 = Enumerable.Range(0, 3).First(i => nodes[tri1[i]].FiberId != uniqueFiberInTriad1);
-            int fiberIdAtPosToReplaceInTri1 = nodes[tri1[posToReplaceInTri1]].FiberId.Value;
-            int posToReplaceInTri2 = Enumerable.Range(0, 3).First(i =>
-                nodes[tri2[i]].FiberId != uniqueFiberInTriad2 &&
-                nodes[tri2[i]].FiberId != fiberIdAtPosToReplaceInTri1);
-
-            // Get nodes that would be swapped in
-            int nodeToSwapIntoTri1 = FindNodeIndexForFiberMatchingOffset(nodes, uniqueFiberInTriad2, tri1);
-            int nodeToSwapIntoTri2 = FindNodeIndexForFiberMatchingOffset(nodes, uniqueFiberInTriad1, tri2);
-
-            // Create simulated triangles
-            var simTri1 = new int[3] { tri1[0], tri1[1], tri1[2] };
-            var simTri2 = new int[3] { tri2[0], tri2[1], tri2[2] };
-            simTri1[posToReplaceInTri1] = nodeToSwapIntoTri1;
-            simTri2[posToReplaceInTri2] = nodeToSwapIntoTri2;
-
-            // Create simulated triads
-            var simTriad1 = CreateTriadFromConnectivity(simTri1, nodes, fibers);
-            var simTriad2 = CreateTriadFromConnectivity(simTri2, nodes, fibers);
-
-            // Count overlaps in simulated configuration
-            int count = 0;
-            if (simTriad1.DetermineIfFibersOverlapTriad()) count++;
-            if (simTriad2.DetermineIfFibersOverlapTriad()) count++;
-
-            return count;
-        }
-
-        /// <summary>
-        /// Creates a Triad from triangle connectivity for evaluation purposes.
-        /// </summary>
-        private Triad CreateTriadFromConnectivity(int[] triangleConnectivity, List<Node> nodes, IReadOnlyList<Fiber> fibers)
-        {
-            var nodeA = nodes[triangleConnectivity[0]];
-            var nodeB = nodes[triangleConnectivity[1]];
-            var nodeC = nodes[triangleConnectivity[2]];
-
-            var triadFibers = new[]
-            {
-                fibers[nodeA.FiberId.Value],
-                fibers[nodeB.FiberId.Value],
-                fibers[nodeC.FiberId.Value]
-            };
-
-            var nodePositions = new[]
-            {
-                nodeA.P,
-                nodeB.P,
-                nodeC.P
-            };
-
-            var triad = new Triad(-1, triadFibers, nodePositions); // Use -1 as dummy number
-            triad.SetEdgesWithFiberIndices(
-                nodeA.FiberId.Value,
-                nodeB.FiberId.Value,
-                nodeC.FiberId.Value);
-
-            return triad;
-        }
-
-        /// <summary>
-        /// Attempts to fix overlaps using cavity retriangulation.
-        /// This is a fallback when simple edge swaps don't help.
-        /// </summary>
-        private bool TryCavityRetriangulation(Triad triad1, Triad triad2, List<Triad> allTriads,
-            List<int[]> triangles, List<Node> nodes, IReadOnlyList<Fiber> fibers, DebugOptions dOptions)
-        {
-            // For now, implement a simple multi-edge swap strategy:
-            // Try swapping with OTHER neighbors of these triads to see if any configuration works
-
-            Console.WriteLine($"    [CAVITY] Examining cavity around triads {triad1.Number} and {triad2.Number}");
-
-            // Get all triangles adjacent to our problematic pair
-            var cavity = new HashSet<int> { triad1.Number, triad2.Number };
-            var cavityTriads = new List<Triad> { triad1, triad2 };
-
-            // Find neighbors (triangles sharing edges with our pair)
-            foreach (var triad in allTriads)
-            {
-                if (cavity.Contains(triad.Number)) continue;
-
-                // Check if this triad shares an edge with any triad in our cavity
-                foreach (var cavityTriad in cavityTriads)
-                {
-                    if (TriadsShareEdge(triad, cavityTriad))
-                    {
-                        cavity.Add(triad.Number);
-                        cavityTriads.Add(triad);
-                        break;
-                    }
-                }
-            }
-
-            Console.WriteLine($"    [CAVITY] Found {cavity.Count} triangles in cavity");
-
-            // Debug output: save cavity state
-            if (dOptions.Debug)
-            {
-                var cavityDebugNodes = nodes.ToList();
-                var cavityDebugTris = cavity.Select(idx => triangles[idx]).ToList();
-                var cavityMesh = new TriangulationMesh2D(cavityDebugNodes, cavityDebugTris);
-                string cavityFile = dOptions.GetDebugFilePath($"Cavity_T{triad1.Number}_T{triad2.Number}");
-                IO.VtkLegacyWriter.WriteUnstructuredGrid2D(cavityFile, cavityMesh);
-                Console.WriteLine($"    [CAVITY] Saved cavity to: {System.IO.Path.GetFileName(cavityFile)}");
-            }
-
-            // For this initial implementation, just return false
-            // In the future, this could do proper Delaunay retriangulation of the cavity
-            Console.WriteLine($"    [CAVITY] Advanced cavity retriangulation not yet implemented - marking as unfixable");
-            return false;
-        }
-
-        /// <summary>
-        /// Checks if two triads share an edge (have 2 common fiber IDs).
-        /// </summary>
-        private bool TriadsShareEdge(Triad triad1, Triad triad2)
-        {
-            var fibers1 = new HashSet<int> { triad1.Edges[0, 0], triad1.Edges[0, 1], triad1.Edges[1, 1] };
-            var fibers2 = new HashSet<int> { triad2.Edges[0, 0], triad2.Edges[0, 1], triad2.Edges[1, 1] };
-
-            return fibers1.Intersect(fibers2).Count() == 2;
-        }
 
         /// <summary>
         /// This is a little class needed for the Delaunator.  Kind of dumb actually, but whatever
@@ -1906,5 +1198,6 @@ namespace FxTMeshGenerator.Meshing
                 Y = y;
             }
         }
+        #endregion
     }
 }

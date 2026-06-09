@@ -284,16 +284,16 @@ namespace FxTMeshGenerator.Tests
             Assert.That(quad.Length, Is.EqualTo(4), "Quad should have exactly 4 nodes");
 
             // Extract inversions and quality ratio from the ValueTuple
-            var resultTuple = ((int inversions, double worstQualityRatio))result;
+            var resultTuple = ((int inversions, int overlaps, double innerAspect, double outerAspect))result;
 
             // For a well-formed square of fibers, we expect:
             // - No inversions (or very few)
             // - Reasonable quality ratio (not infinity or max value)
             Console.WriteLine($"Inversions: {resultTuple.inversions}");
-            Console.WriteLine($"Worst Quality Ratio: {resultTuple.worstQualityRatio}");
+            Console.WriteLine($"Worst aspect Ratio: {resultTuple.outerAspect}");
 
-            Assert.That(resultTuple.worstQualityRatio, Is.LessThan(double.MaxValue), "Quality ratio should be finite");
-            Assert.That(resultTuple.worstQualityRatio, Is.GreaterThan(0), "Quality ratio should be positive");
+            Assert.That(resultTuple.outerAspect, Is.LessThan(double.MaxValue), "Quality ratio should be finite");
+            Assert.That(resultTuple.outerAspect, Is.GreaterThan(0), "Quality ratio should be positive");
         }
 
         /// <summary>
@@ -393,13 +393,13 @@ namespace FxTMeshGenerator.Tests
                 var result = method.Invoke(triangulator, parameters);
 
                 // Extract inversions and quality ratio from the ValueTuple
-                var resultTuple = ((int inversions, double worstQualityRatio))result;
+                var resultTuple = ((int inversions, int overlaps, double innerAspect, double outerAspect))result;
 
                 Console.WriteLine($"Inversions detected: {resultTuple.inversions}");
-                Console.WriteLine($"Worst Quality Ratio: {resultTuple.worstQualityRatio}");
+                Console.WriteLine($"Worst Quality Ratio: {resultTuple.outerAspect}");
 
                 // With larger fibers and closer spacing, we expect some inversions
-                Assert.That(resultTuple.worstQualityRatio, Is.LessThan(double.MaxValue), "Quality ratio should be finite");
+                Assert.That(resultTuple.outerAspect, Is.LessThan(double.MaxValue), "Quality ratio should be finite");
 
                 // Document the result - inversions might or might not occur depending on exact configuration
                 Console.WriteLine($"Test completed with {resultTuple.inversions} inversions");

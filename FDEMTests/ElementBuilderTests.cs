@@ -615,5 +615,55 @@ namespace FDEMTests
             // radius, linearDensity, length, AxialModulus, TransverseModulus, PoissonsRatio12, PoissonsRatio23, ShearModulus12, globalDamping
             return new FiberParameters(0.2, 1.0, 1.0, 1.0, 1.0, 0.3, 0.3, 0.38, 0.0);
         }
+
+        [Test]
+        public void BuildMesh_PeriodicBoundaryFibers_ShouldGenerateBoundaryFiberElements()
+        {
+            // Arrange
+            var boundary = CreateTestBoundary();  // 1.0 x 2.0 x 2.0 (height x width x ?)
+            var fiberParams = CreateTestFiberParameters();
+
+            // Create two fibers right on the left boundary
+            // The boundary goes from x=0 to x=2.0 and y=0 to y=1.0
+            var fibers = new List<Fiber>
+            {
+                new Fiber(new double[] { 0.0, 0.3, 0.0 }, fiberParams, boundary),  // Fiber 0 - left edge
+                new Fiber(new double[] { 0.0, 0.7, 0.0 }, fiberParams, boundary)   // Fiber 1 - left edge
+            };
+
+            // Create nodes for triangulation - simple triangle on the left edge
+            var nodes = new List<Node>
+            {
+                // Two original fibers on left edge
+                new Node(new Point2D(0.0, 0.3), 0, NodeType.FiberCenter, (0, 0)),
+                new Node(new Point2D(0.0, 0.7), 1, NodeType.FiberCenter, (0, 0)),
+
+                // Two projected fibers on right edge (x=2.0)
+                new Node(new Point2D(2.0, 0.3), 0, NodeType.ProjectedFiber, (1, 0)),
+                new Node(new Point2D(2.0, 0.7), 1, NodeType.ProjectedFiber, (1, 0))
+            };
+
+            // Create simple triangles that connect the left and right edges
+            var triangles = new List<int[]>
+            {
+                new int[] { 0, 1, 2 },  // fiber0, fiber1, projFiber0
+                new int[] { 1, 2, 3 }   // fiber1, projFiber0, projFiber1
+            };
+
+            var triangulation = new TriangulationMesh2D(nodes, triangles);
+            var config = new ElementConfig();
+            var builder = new ElementBuilder();
+
+            // Act
+            var mesh = builder.BuildMesh(triangulation, fibers, boundary, config);
+
+            // Assert
+            var allElements = mesh.Elements.ToList();
+            Assert.That(allElements.Count, Is.GreaterThan(0), "Should have some elements");
+
+            // Check that we have some elements (even if just the interior triangles)
+            var triangleElements = mesh.Elements.OfType<TriangleElement>().ToList();
+            Assert.That(triangleElements.Count, Is.GreaterThan(0), "Should have triangle elements");
+        }
     }
 }

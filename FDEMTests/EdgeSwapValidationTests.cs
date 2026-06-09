@@ -397,7 +397,7 @@ namespace FxTMeshGenerator.Tests
             var parameters = new object[] { 0, 1, nodes, triangles, fibers, null, new int[] {3,2}};
 
             var currentQualityObj = evaluateQuadrilateralQualityMethod.Invoke(triangulator, parameters);
-            var currentQuality = ((int inversions, double worstQualityRatio))currentQualityObj;
+            var currentQuality = ((int inversions, int overlaps, double innerAspect, double outerAspect))currentQualityObj;
 
             var evaluateSwappedQuadrilateralQualityMethod = typeof(DelaunayTriangulator).GetMethod(
                 "EvaluateSwappedQuadrilateralQuality",
@@ -406,7 +406,7 @@ namespace FxTMeshGenerator.Tests
             var parametersSwapped = new object[] { 0, 1, parameters[5], new int[] { 0, 1 }, nodes, triangles, fibers };
 
             var swappedQualityObj = evaluateSwappedQuadrilateralQualityMethod.Invoke(triangulator, parametersSwapped);
-            var swappedQuality = ((int inversions, double worstQualityRatio))swappedQualityObj;
+            var swappedQuality = ((int inversions, int overlaps, double innerAspect, double outerAspect))swappedQualityObj;
 
 
             //assert that the quality of the swapped configuration is better than the original
