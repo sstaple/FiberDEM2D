@@ -1,11 +1,12 @@
-using FxTMeshGenerator.Geometry;
-using FxTMeshGenerator.Meshing.Elements;
-using FDEMCore;
+using FDEMCore.FxTMesh.Geometry;
+using FDEMCore.FxTMesh.Meshing.Elements;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.IO;
 
-namespace FxTMeshGenerator.Meshing
+
+namespace FDEMCore.FxTMesh.Meshing
 {
     /// <summary>
     /// Builds finite elements from a Delaunay triangulation.
@@ -16,7 +17,8 @@ namespace FxTMeshGenerator.Meshing
         private readonly Dictionary<string, int> _nodeToIndex = new();
         private readonly List<BaseElement> _elements = new();
         private int _elementIdCounter = 0;
-        private const double NodeTolerance = 1e-10;
+        private const double NodeTolerance = 1e-5;
+        private double DomainTolerance;
 
         public FEMesh BuildMesh(TriangulationMesh2D triangulation,IReadOnlyList<Fiber> fibers,
             CellBoundary boundary,ElementConfig config, DebugOptions? dOptions = null)
@@ -26,6 +28,8 @@ namespace FxTMeshGenerator.Meshing
             _nodeToIndex.Clear();
             _elements.Clear();
             _elementIdCounter = 0;
+            //scale tolerance to the magnitude of the problem domain (e.g. cell size) to prevent issues with very small or large coordinates
+            DomainTolerance = boundary.ODimensions.Max() * NodeTolerance;
 
             // Process each triangle to build interior matrix elements
             for (int i = 0; i < triangulation.Triangles.Count; i++)
@@ -35,7 +39,7 @@ namespace FxTMeshGenerator.Meshing
                 var nodeB = triangulation.Nodes[tri[1]];
                 var nodeC = triangulation.Nodes[tri[2]];
 
-                ProcessTriangle(nodeA, nodeB, nodeC, fibers, config, dOptions);
+                BuildMatrixInteriorTriangle(nodeA, nodeB, nodeC, fibers, config, dOptions);
             }
 
             // Write intermediate mesh: just interior triangles
@@ -49,7 +53,7 @@ namespace FxTMeshGenerator.Meshing
             // Build fiber and matrix elements between adjacent triangles
             BuildInteriorFiberMatrixElements(triangulation, fibers, config, dOptions);
 
-            // Write mesh: triangles + fiber + quads/triangles
+            // Write mesh: triangles + fiber + quads/triangles before boundary elements
             if (dOptions != null && dOptions.Debug)
             {
                 var fullMesh = new FEMesh(_globalNodes.ToList(), _elements.ToList(),
@@ -75,13 +79,6 @@ namespace FxTMeshGenerator.Meshing
             return new FEMesh(_globalNodes, _elements, periodicPairs, topEdge, rightEdge);
         }
 
-        private void ProcessTriangle(Node nodeA, Node nodeB, Node nodeC,
-            IReadOnlyList<Fiber> fibers,ElementConfig config,DebugOptions? dOptions = null)
-        {
-            // All triangles now go through BuildInteriorTriangle
-            // It handles both fiber nodes (surface points) and boundary nodes (original points)
-            BuildInteriorTriangle(nodeA, nodeB, nodeC, fibers, config, dOptions);
-        }
 
         private void AddTriangleElement(Point2D[] nodes, ElementPhase phase)
         {
@@ -414,6 +411,128 @@ namespace FxTMeshGenerator.Meshing
             return elementNodes;
         }
 
+        #region Find Projected Pairs
+
+        private List<(int, int)> BuildPeriodicNodePairs( TriangulationMesh2D triangulation, CellBoundary boundary)
+        {
+            var pairs = new List<(int, int)>();
+            var pairKeys = new HashSet<string>();
+
+            double lx = boundary.ODimensions[1];
+            double ly = boundary.ODimensions[2];
+
+            double tol = DomainTolerance;
+
+            var nodeLookup = BuildGlobalNodeLookup(tol);
+
+            for (int i = 0; i < _globalNodes.Count; i++)
+            {
+                var node = _globalNodes[i];
+
+                // left -> right
+                if (Math.Abs(node.X) < tol)
+                {
+                    TryAddPeriodicPair(
+                        i,
+                        new Point2D(node.X + lx, node.Y),
+                        nodeLookup,
+                        pairs,
+                        pairKeys,
+                        tol);
+                }
+
+                // bottom -> top
+                if (Math.Abs(node.Y) < tol)
+                {
+                    TryAddPeriodicPair(
+                        i,
+                        new Point2D(node.X, node.Y + ly),
+                        nodeLookup,
+                        pairs,
+                        pairKeys,
+                        tol);
+                }
+            }
+
+            return pairs;
+        }
+
+        private Dictionary<string, List<int>> BuildGlobalNodeLookup(double tolerance)
+        {
+            var lookup = new Dictionary<string, List<int>>();
+
+            for (int i = 0; i < _globalNodes.Count; i++)
+            {
+                string key = GetRoundedPointKey(_globalNodes[i], tolerance);
+
+                if (!lookup.TryGetValue(key, out var indices))
+                {
+                    indices = new List<int>();
+                    lookup[key] = indices;
+                }
+
+                indices.Add(i);
+            }
+
+            return lookup;
+        }
+
+        private void TryAddPeriodicPair( int nodeIndex, Point2D projectedPoint, Dictionary<string, List<int>> nodeLookup,
+            List<(int, int)> pairs, HashSet<string> pairKeys, double tolerance)
+        {
+            int? matchingNodeIndex = FindGlobalNodeIndex(
+                projectedPoint,
+                nodeLookup,
+                tolerance);
+
+            if (!matchingNodeIndex.HasValue)
+                return;
+
+            int i = nodeIndex;
+            int j = matchingNodeIndex.Value;
+
+            if (i == j)
+                return;
+
+            string pairKey = $"{Math.Min(i, j)}_{Math.Max(i, j)}";
+
+            if (!pairKeys.Add(pairKey))
+                return;
+
+            pairs.Add((i, j));
+        }
+
+        private int? FindGlobalNodeIndex( Point2D target, Dictionary<string, List<int>> nodeLookup, double tolerance)
+        {
+            string key = GetRoundedPointKey(target, tolerance);
+
+            if (!nodeLookup.TryGetValue(key, out var candidateIndices))
+                return null;
+
+            foreach (int candidateIndex in candidateIndices)
+            {
+                var candidate = _globalNodes[candidateIndex];
+
+                double dx = candidate.X - target.X;
+                double dy = candidate.Y - target.Y;
+
+                if (Math.Sqrt(dx * dx + dy * dy) < tolerance)
+                    return candidateIndex;
+            }
+
+            return null;
+        }
+
+        private static string GetRoundedPointKey(Point2D point, double tolerance)
+        {
+            long ix = (long)Math.Round(point.X / tolerance);
+            long iy = (long)Math.Round(point.Y / tolerance);
+
+            return $"{ix}_{iy}";
+        }
+
+        #endregion
+
         #region Add Methods
 
 
@@ -489,7 +608,7 @@ namespace FxTMeshGenerator.Meshing
 
                 // MATLAB threshold 1: Critical overlap (factor 20)
                 // fiber.Radius + fiber.Radius/20 means surface is very close to edge
-                double criticalThreshold = fiber.Radius + fiber.Radius / 20.0;
+                double criticalThreshold = fiber.Radius + fiber.Radius / 30.0;
                 overlapInfo[i].HasCriticalOverlap = minDist <= criticalThreshold;
 
                 // MATLAB threshold 2: Adjustment needed (factor 2)
@@ -1095,13 +1214,14 @@ namespace FxTMeshGenerator.Meshing
 
                     var shift = GetPeriodicShift(boundary, direction);
 
-                    //I maybe need to have the corner boundary points linked with the other corners.  
+                    //TODO: I maybe need to have the corner boundary points linked with the other corners.  
                     var originalBoundaryPoint = new Point2D( boundaryNode.P.X - shift.X,
                         boundaryNode.P.Y - shift.Y);
 
                     int originalTriIdx = FindTriangleWithOriginalFiberAndBoundaryPoint(triangulation,
                         projectedFiberNode.FiberId.Value,originalBoundaryPoint);
 
+                    //This skips if the triangle with the original fiber and boundary pt wasn't found.  
                     if (originalTriIdx < 0)
                         continue;
 
@@ -1755,13 +1875,6 @@ namespace FxTMeshGenerator.Meshing
             AddTriangleElement(triangleNodes, ElementPhase.Matrix);
         }
 
-        private List<(int, int)> BuildPeriodicNodePairs(TriangulationMesh2D triangulation, CellBoundary boundary)
-        {
-            var pairs = new List<(int, int)>();
-            // Simplified - full implementation would use offset information from nodes
-            return pairs;
-        }
-
         private (List<int> topEdge, List<int> rightEdge) BuildBoundaryEdgeNodes(CellBoundary boundary)
         {
             var topEdge = new List<int>();
@@ -1782,7 +1895,7 @@ namespace FxTMeshGenerator.Meshing
             return (topEdge, rightEdge);
         }
 
-        private void BuildInteriorTriangle(Node nodeA, Node nodeB, Node nodeC,IReadOnlyList<Fiber> fibers, 
+        private void BuildMatrixInteriorTriangle(Node nodeA, Node nodeB, Node nodeC,IReadOnlyList<Fiber> fibers, 
             ElementConfig config, DebugOptions? dOptions = null)
         {
             // Calculate surface points on fibers for interior triangle

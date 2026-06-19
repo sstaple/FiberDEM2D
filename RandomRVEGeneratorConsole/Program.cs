@@ -81,8 +81,9 @@ namespace RandomRVEGeneratorConsole
 
 				//Generate the RVE and write the output file.
 				myInputFile.Initiate();
+                
 
-				stopWatch.Stop();
+                stopWatch.Stop();
 				TimeSpan ts = stopWatch.Elapsed;
 				// Format and display the TimeSpan value.
 				string elapsedTime = String.Format("{0:00}:{1:00}:{2:00}.{3:00}",

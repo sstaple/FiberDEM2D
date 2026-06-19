@@ -1,12 +1,13 @@
 
 using System;
 using System.Globalization;
+using System.Collections.Generic;
 using System.IO;
-using FxTMeshGenerator.Geometry;
-using FxTMeshGenerator.Meshing;
-using FxTMeshGenerator.Meshing.Elements;
+using FDEMCore.FxTMesh.Geometry;
+using FDEMCore.FxTMesh.Meshing;
+using FDEMCore.FxTMesh.Meshing.Elements;
 
-namespace FxTMeshGenerator.IO
+namespace FDEMCore.FxTMesh.IO
 {
     /// <summary>
     /// Writes VTK files for visualization in ParaView or VisIt.

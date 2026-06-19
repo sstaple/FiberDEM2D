@@ -530,7 +530,6 @@ namespace FDEMCore
 		public bool saveConnectionPlot = false;
         public double minSpacingBetweenFiberAndSolidBoundary = 0.0;
 
-
         #endregion
 
         #region Constructors

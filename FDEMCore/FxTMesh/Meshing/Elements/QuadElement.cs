@@ -1,6 +1,7 @@
-using FxTMeshGenerator.Geometry;
+using FDEMCore.FxTMesh.Geometry;
+using System;
 
-namespace FxTMeshGenerator.Meshing.Elements
+namespace FDEMCore.FxTMesh.Meshing.Elements
 {
     /// <summary>
     /// Quadrilateral finite element (4, 6, 8, 9, 10, 12, or 16 nodes).

@@ -1,4 +1,4 @@
-namespace FxTMeshGenerator.Meshing
+namespace FDEMCore.FxTMesh.Meshing
 {
     /// <summary>
     /// Configuration for element node counts.

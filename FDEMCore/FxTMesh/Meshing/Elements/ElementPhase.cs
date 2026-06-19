@@ -1,4 +1,4 @@
-namespace FxTMeshGenerator.Meshing.Elements
+namespace FDEMCore.FxTMesh.Meshing.Elements
 {
     /// <summary>
     /// Represents the material phase of an element.

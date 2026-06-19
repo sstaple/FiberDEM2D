@@ -1,6 +1,7 @@
-using FxTMeshGenerator.Geometry;
+using FDEMCore.FxTMesh.Geometry;
+using System;
 
-namespace FxTMeshGenerator.Meshing.Elements
+namespace FDEMCore.FxTMesh.Meshing.Elements
 {
     /// <summary>
     /// Triangular finite element (3, 6, 9, or 12 nodes).

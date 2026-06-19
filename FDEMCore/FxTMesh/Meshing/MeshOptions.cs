@@ -1,5 +1,7 @@
+using System;
+using System.IO;
 
-namespace FxTMeshGenerator.Meshing
+namespace FDEMCore.FxTMesh.Meshing
 {
     public sealed class MeshOptions
     {

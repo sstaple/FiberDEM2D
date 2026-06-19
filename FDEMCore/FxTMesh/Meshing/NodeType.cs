@@ -1,5 +1,5 @@
 
-namespace FxTMeshGenerator.Meshing
+namespace FDEMCore.FxTMesh.Meshing
 {
     public enum NodeType
     {

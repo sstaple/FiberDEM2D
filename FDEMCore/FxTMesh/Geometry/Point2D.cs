@@ -1,5 +1,5 @@
 
-namespace FxTMeshGenerator.Geometry
+namespace FDEMCore.FxTMesh.Geometry
 {
     public readonly struct Point2D
     {

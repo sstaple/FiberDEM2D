@@ -1,9 +1,9 @@
 
 using System.Collections.Generic;
-using FxTMeshGenerator.Geometry;
-using FxTMeshGenerator.Meshing;
+using FDEMCore.FxTMesh.Geometry;
+using FDEMCore.FxTMesh.Meshing;
 
-namespace FxTMeshGenerator.Meshing
+namespace FDEMCore.FxTMesh.Meshing
 {
     public sealed class TriangulationMesh2D
     {

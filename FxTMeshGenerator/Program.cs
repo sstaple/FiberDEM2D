@@ -1,7 +1,7 @@
 ﻿using FDEMCore;
-using FxTMeshGenerator.Geometry;
-using FxTMeshGenerator.IO;
-using FxTMeshGenerator.Meshing;
+using FDEMCore.FxTMesh.Geometry;
+using FDEMCore.FxTMesh.IO;
+using FDEMCore.FxTMesh.Meshing;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -81,7 +81,7 @@ namespace FxTMeshGenerator
 
             string fileNameNoExt = Path.GetFileNameWithoutExtension(path);
             //For debugging, make and pass the DebugOptions to the triangulator and element builder.  This will cause them to write out debug files during their processes, which can be helpful for diagnosing issues with the triangulation and meshing.
-            Meshing.DebugOptions myDebugOptions = new Meshing.DebugOptions {Debug = true,Directory = dirName,
+            FDEMCore.FxTMesh.Meshing.DebugOptions myDebugOptions = new FDEMCore.FxTMesh.Meshing.DebugOptions {Debug = true,Directory = dirName,
                 FileName = fileNameNoExt };
 
             try

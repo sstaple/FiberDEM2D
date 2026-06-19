@@ -2,9 +2,9 @@ using NUnit.Framework;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using FxTMeshGenerator.Geometry;
-using FxTMeshGenerator.Meshing;
-using FxTMeshGenerator.Meshing.Elements;
+using FxTMesherCore.Geometry;
+using FxTMesherCore.Meshing;
+using FxTMesherCore.Meshing.Elements;
 using FDEMCore;
 
 namespace FDEMTests

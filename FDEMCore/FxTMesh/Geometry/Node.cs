@@ -1,9 +1,9 @@
-﻿using FxTMeshGenerator.Meshing;
+﻿using FDEMCore.FxTMesh.Meshing;
 using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace FxTMeshGenerator.Geometry
+namespace FDEMCore.FxTMesh.Geometry
 {
     public sealed class Node
     {

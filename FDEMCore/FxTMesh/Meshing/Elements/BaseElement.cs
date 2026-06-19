@@ -1,6 +1,6 @@
-using FxTMeshGenerator.Geometry;
+using FDEMCore.FxTMesh.Geometry;
 
-namespace FxTMeshGenerator.Meshing.Elements
+namespace FDEMCore.FxTMesh.Meshing.Elements
 {
     /// <summary>
     /// Base class for finite elements in the mesh.

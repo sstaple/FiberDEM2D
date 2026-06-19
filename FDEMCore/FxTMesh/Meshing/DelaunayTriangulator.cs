@@ -1,6 +1,6 @@
 using DelaunatorSharp;
-using FxTMeshGenerator.Geometry;
-using FxTMeshGenerator.IO;
+using FDEMCore.FxTMesh.Geometry;
+using System.IO;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -8,7 +8,7 @@ using System.Xml.Linq;
 using FDEMCore;
 using System.IO;
 
-namespace FxTMeshGenerator.Meshing
+namespace FDEMCore.FxTMesh.Meshing
 {
     /// <summary>
     /// Delaunay-based triangulation of fiber centers with optional periodic tiling
@@ -210,12 +210,16 @@ namespace FxTMeshGenerator.Meshing
 
             // Add corner points as special nodes (will NOT be projected)
             bool includeCorners = boundary.Walls.Any(cw => cw.BoundaryType == BoundaryType.Solid);
+            //setup the offsets of all of the corners:
+            var cornerOffsets = new (int, int)[] { (0, 0), (0, 1), (1, 1), (1, 0) };// LowerLeft, UpperLeft, UpperRight, LowerRight
+
             if (includeCorners)
             {
                 var cornerPts = boundary.Find2DCornersAtCurrentStrain();
-                foreach (var cp in cornerPts)
+                for (int i = 0; i < cornerPts.Length; i++)
                 {
-                    cornerNodes.Add(new Node(new Point2D(cp.X, cp.Y), null, NodeType.BoundaryCorner, (0, 0)));
+                    cornerNodes.Add(new Node(new Point2D(cornerPts[i].X, cornerPts[i].Y), null, 
+                        NodeType.BoundaryCorner, cornerOffsets[i]));
                 }
             }
 

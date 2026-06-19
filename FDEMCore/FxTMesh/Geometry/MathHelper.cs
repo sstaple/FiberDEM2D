@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace FxTMeshGenerator.Geometry
+namespace FDEMCore.FxTMesh.Geometry
 {
     /// <summary>
     /// Mathematical utility methods for mesh generation.

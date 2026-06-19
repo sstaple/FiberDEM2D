@@ -1,7 +1,8 @@
-using FxTMeshGenerator.Geometry;
-using FxTMeshGenerator.Meshing.Elements;
+using FDEMCore.FxTMesh.Geometry;
+using FDEMCore.FxTMesh.Meshing.Elements;
+using System.Collections.Generic;
 
-namespace FxTMeshGenerator.Meshing
+namespace FDEMCore.FxTMesh.Meshing
 {
     /// <summary>
     /// Finite element mesh with global nodes, elements, and periodic boundary information.
