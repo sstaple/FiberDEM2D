@@ -1559,7 +1559,7 @@ namespace FDEMCore.FxTMesh.Meshing
             // Determine if shared edge is in CCW order in triangle 1
             bool isEdgeCCW = CheckIfSharedEdgeIsCCWOrder(triangle1Nodes, sharedEdgeNodes);
 
-            // Determine fiber node order (creates curved fiber surface with 6 nodes)
+            // Determine fiber node order (
             var fiber1Result = _elementBuilder.BuildFiberTriangle(fiber1Center, fiber1Node_Tri1, fiber1Node_Tri2, fiber1.Radius, isEdgeCCW);
             var fiber1Nodes = fiber1Result.Nodes;
 
@@ -1576,9 +1576,9 @@ namespace FDEMCore.FxTMesh.Meshing
                 return; // Skip zero-thickness elements
 
             // Adjust middle nodes if fibers are too close
-            (fiber1Nodes, fiber2Nodes) = ChangeMiddleNodeIfFibersAreTooClose(
-                fiber1Nodes, fiber2Nodes, fiber1.Radius, fiber2.Radius);
-
+           (fiber1Nodes, fiber2Nodes) = ChangeMiddleNodeIfFibersAreTooClose(
+              fiber1Nodes, fiber2Nodes, fiber1.Radius, fiber2.Radius);
+           
             // Build and add the two fiber elements
             AddElement(ElementPhase.Fiber, new ElementBuildResult(fiber1Result.ElementName, fiber1Nodes));
             AddElement(ElementPhase.Fiber, new ElementBuildResult(fiber2Result.ElementName, fiber2Nodes));

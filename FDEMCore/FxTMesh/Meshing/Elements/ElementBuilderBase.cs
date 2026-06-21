@@ -296,8 +296,8 @@ namespace FDEMCore.FxTMesh.Meshing.Elements
             for (int i = 0; i < 8; i++)
                 nodes[i] = q8[i];
 
-            nodes[8] = Centroid(q8[0], q8[2], q8[4], q8[6]);
-
+            //nodes[8] = Centroid(q8[0], q8[2], q8[4], q8[6]);
+            nodes[8] = PointAlong(q8[1], q8[5], 0.5);
             return nodes;
         }
 
