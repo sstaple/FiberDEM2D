@@ -57,11 +57,11 @@ namespace FxTMeshGenerator.IO
 
             for (int i = 0; i < mesh.Elements.Count; i++)
             {
-                BaseElement element = mesh.Elements[i];
+                Element element = mesh.Elements[i];
 
                 int elementId = i + 1;
                 string materialName = GetMaterialName(element);
-                string elementType = GetFxTElementType(element);
+                string elementType = element.ElementName;
 
                 var nodeIds = element.Nodes
                     .Select(node => FindNodeId(mesh.GlobalNodes, node).ToString(CultureInfo.InvariantCulture));
@@ -86,22 +86,29 @@ namespace FxTMeshGenerator.IO
         {
             using var writer = new StreamWriter(path);
 
-            int pinnedNode = 1;
+            if (mesh.PinnedNode.HasValue)
+            {
+                writer.WriteLine("FxT.pinned");
+                writer.WriteLine(mesh.PinnedNode.Value + 1);
+                writer.WriteLine();
+            }
 
-            writer.WriteLine("FxT.pinned");
-            writer.WriteLine(pinnedNode);
-            writer.WriteLine();
+            if (mesh.X1Nodes.Count > 0)
+            {
+                writer.WriteLine("FxT.x1");
+                foreach (int nodeIndex in mesh.X1Nodes)
+                    writer.WriteLine(nodeIndex + 1);
+                writer.WriteLine();
+            }
 
-            writer.WriteLine("FxT.x1");
-            foreach (int nodeIndex in mesh.RightEdgeNodes)
-                writer.WriteLine(nodeIndex + 1);
-            writer.WriteLine();
-
-            writer.WriteLine("FxT.y1");
-            foreach (int nodeIndex in mesh.TopEdgeNodes)
-                writer.WriteLine(nodeIndex + 1);
+            if (mesh.Y1Nodes.Count > 0)
+            {
+                writer.WriteLine("FxT.y1");
+                foreach (int nodeIndex in mesh.Y1Nodes)
+                    writer.WriteLine(nodeIndex + 1);
+            }
         }
-
+       
         private static void WritePackStatistics(string path, CellBoundary boundary)
         {
             var statistics = new
@@ -119,26 +126,13 @@ namespace FxTMeshGenerator.IO
             File.WriteAllText(path, JsonSerializer.Serialize(statistics, options));
         }
 
-        private static string GetMaterialName(BaseElement element)
+        private static string GetMaterialName(Element element)
         {
             return element.Phase switch
             {
                 ElementPhase.Fiber => "fiber",
                 ElementPhase.Matrix => "matrix",
                 _ => throw new NotSupportedException($"Unsupported element phase: {element.Phase}")
-            };
-        }
-
-        private static string GetFxTElementType(BaseElement element)
-        {
-            return element switch
-            {
-                TriangleElement tri when tri.NodeCount == 3 => "2DT3",
-                TriangleElement tri when tri.NodeCount == 6 => "2DT6.4",
-                QuadElement quad when quad.NodeCount == 4 => "2DQ4",
-                QuadElement quad when quad.NodeCount == 8 => "2DQ8.9",
-                _ => throw new NotSupportedException(
-                    $"No FxT element type mapping for {element.GetType().Name} with {element.NodeCount} nodes.")
             };
         }
 

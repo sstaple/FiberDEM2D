@@ -9,6 +9,11 @@ namespace FDEMCore.FxTMesh.Meshing.Elements
         Matrix,
         
         /// <summary>Fiber material</summary>
-        Fiber
+        Fiber,
+
+        /// <summary>
+        /// Composite material (used for elements that contain both fiber and matrix, usually part of the top layers in a cross-ply specimen).
+        /// </summary>
+        Composite
     }
 }

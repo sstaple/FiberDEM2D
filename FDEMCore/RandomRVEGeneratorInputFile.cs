@@ -16,7 +16,7 @@ namespace FDEMCore
 
         //Meshing parameter
         public bool createFxTMesh = false;
-        public int meshType = 0;
+        public ElementConfig elConfig;
         public bool isCrossPly = false;
         public double crossPlyThickness = 0;
         #endregion
@@ -93,7 +93,7 @@ namespace FDEMCore
 
 				if(createFxTMesh)
                 {
-					FEMesh myMesh = FxTMesh.FxTMeshGenerator.GenerateFromPack(Packing, outParams.DirName, outParams.FileName + outParams.FileIndex, true, null, null);
+					FEMesh myMesh = FxTMesh.FxTMeshGenerator.GenerateFromPack(Packing, outParams.DirName, outParams.FileName + outParams.FileIndex, true, null, elConfig);
                     FxTInputDeckWriter.WriteMeshDeck(outputDirectory: Path.Combine(dirName, sFileName + "_FxT"),
 						mesh: myMesh, boundary: Packing.Boundary);
                 }
@@ -110,7 +110,8 @@ namespace FDEMCore
             if (sInputs[0] == "FxTMesh")
             {
                 createFxTMesh = true;
-                meshType = Convert.ToInt16(sInputs[1]);
+                FxTElementFamily elementFAmily = (FxTElementFamily)int.Parse(sInputs[1]);
+                elConfig = new ElementConfig { Family = elementFAmily };
                 wasMeshingOption = true;
 
             }

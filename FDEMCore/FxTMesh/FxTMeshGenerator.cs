@@ -28,7 +28,7 @@ namespace FDEMCore.FxTMesh
 
             var triangulation = triangulator.GenerateTriangulation(pack.Boundary,pack.LFibers, debugOptions, meshOptions);
 
-            var elementBuilder = new ElementBuilder();
+            var elementBuilder = new MeshBuilder();
 
             var feMesh = elementBuilder.BuildMesh(triangulation, pack.LFibers,pack.Boundary,  elementConfig, debugOptions);
 

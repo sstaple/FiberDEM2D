@@ -5,7 +5,7 @@ namespace FDEMCore.FxTMesh.Meshing.Elements
     /// <summary>
     /// Base class for finite elements in the mesh.
     /// </summary>
-    public abstract class BaseElement
+    public class Element
     {
         /// <summary>Global element ID</summary>
         public int Id { get; init; }
@@ -19,11 +19,15 @@ namespace FDEMCore.FxTMesh.Meshing.Elements
         /// <summary>Total number of nodes in this element</summary>
         public int NodeCount => Nodes?.Length ?? 0;
 
-        protected BaseElement(int id, ElementPhase phase, Point2D[] nodes)
+        /// <summary>Total number of nodes in this element</summary>
+        public string ElementName { get; init; }
+
+        public Element(int id, ElementPhase phase, string elementName, Point2D[] nodes)
         {
             Id = id;
             Phase = phase;
             Nodes = nodes;
+            ElementName = elementName;
         }
     }
 }

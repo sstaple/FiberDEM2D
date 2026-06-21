@@ -153,7 +153,7 @@ namespace FDEMTests
         }
 
         /// <summary>
-        /// Public wrapper to test the private method from ElementBuilder.
+        /// Public wrapper to test the private method from MeshBuilder.
         /// This replicates the logic for testing purposes.
         /// </summary>
         private Point2D CalculateFiberSurfacePointPublic(

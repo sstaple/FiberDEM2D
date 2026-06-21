@@ -1,11 +1,12 @@
 
-using System;
-using System.Globalization;
-using System.Collections.Generic;
-using System.IO;
 using FDEMCore.FxTMesh.Geometry;
 using FDEMCore.FxTMesh.Meshing;
 using FDEMCore.FxTMesh.Meshing.Elements;
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Linq;
 
 namespace FDEMCore.FxTMesh.IO
 {
@@ -124,70 +125,18 @@ namespace FDEMCore.FxTMesh.IO
             sw.WriteLine($"CELLS {mesh.Elements.Count} {totalConnectivity}");
             foreach (var elem in mesh.Elements)
             {
-                sw.Write($"{elem.NodeCount}");
+                //sw.Write($"{elem.NodeCount}");
 
-                // Special handling for 6-node fiber triangles: reorder nodes to match VTK_QUADRATIC_TRIANGLE
-                if (elem is TriangleElement tri && tri.NodeCount == 6 && tri.Phase == ElementPhase.Fiber)
+                int[] reorderMap = GetVTKOrder(elem);
+
+                sw.Write($"{reorderMap.Length}");
+
+                foreach (int localIndex in reorderMap)
                 {
-                    // Our node order: [0]=center, [1]=mid01, [2]=corner, [3]=arc, [4]=corner, [5]=mid45
-                    // VTK expects: [0,1,2]=corners, [3]=mid01, [4]=mid12, [5]=mid20
-                    // Remapping: [2,4,0,3,5,1] -> [0,1,2,3,4,5]
-                    int[] reorderMap = new int[] { 2, 4, 0, 3, 5, 1 };
-                    for (int i = 0; i < 6; i++)
-                    {
-                        int idx = FindNodeIndex(mesh.GlobalNodes, elem.Nodes[reorderMap[i]]);
-                        sw.Write($" {idx}");
-                    }
+                    int idx = FindNodeIndex(mesh.GlobalNodes, elem.Nodes[localIndex]);
+                    sw.Write($" {idx}");
                 }
-                // Special handling for 6-node matrix triangles (fiber-boundary elements)
-                else if (elem is TriangleElement tri6 && tri6.NodeCount == 6 && tri6.Phase == ElementPhase.Matrix)
-                {
-                    // Our node order: [0,1,2]=corners, [3]=mid12, [4]=mid01, [5]=mid20
-                    // VTK expects: [0,1,2]=corners, [3]=mid01, [4]=mid12, [5]=mid20
-                    // Remapping: [0,1,2,4,3,5] -> [0,1,2,3,4,5]
-                    int[] reorderMap = new int[] { 0, 1, 2, 4, 3, 5 };
-                    for (int i = 0; i < 6; i++)
-                    {
-                        int idx = FindNodeIndex(mesh.GlobalNodes, elem.Nodes[reorderMap[i]]);
-                        sw.Write($" {idx}");
-                    }
-                }
-                // Special handling for 8-node matrix quads (fiber-fiber elements)
-                else if (elem is QuadElement quad && quad.NodeCount == 8 && quad.Phase == ElementPhase.Matrix)
-                {
-                    // Our node order: [0,1,2,3,4,5,6,7] = corner, mid, corner, mid, corner, mid, corner, mid
-                    // Layout:
-                    //   6--5--4
-                    //   |     |
-                    //   7     3
-                    //   |     |
-                    //   0--1--2
-                    //
-                    // VTK expects: [0,1,2,3,4,5,6,7] = corner, corner, corner, corner, mid, mid, mid, mid
-                    // Layout:
-                    //   3--6--2
-                    //   |     |
-                    //   7     5
-                    //   |     |
-                    //   0--4--1
-                    //
-                    // Remapping: [0,2,4,6,1,3,5,7] -> [0,1,2,3,4,5,6,7]
-                    int[] reorderMap = new int[] { 0, 2, 4, 6, 1, 3, 5, 7 };
-                    for (int i = 0; i < 8; i++)
-                    {
-                        int idx = FindNodeIndex(mesh.GlobalNodes, elem.Nodes[reorderMap[i]]);
-                        sw.Write($" {idx}");
-                    }
-                }
-                else
-                {
-                    // Standard order for all other elements
-                    for (int i = 0; i < elem.NodeCount; i++)
-                    {
-                        int idx = FindNodeIndex(mesh.GlobalNodes, elem.Nodes[i]);
-                        sw.Write($" {idx}");
-                    }
-                }
+
                 sw.WriteLine();
             }
 
@@ -195,10 +144,7 @@ namespace FDEMCore.FxTMesh.IO
             sw.WriteLine($"CELL_TYPES {mesh.Elements.Count}");
             foreach (var elem in mesh.Elements)
             {
-                // VTK cell types: Triangle=5, Quad=9
-                int vtkType = elem is TriangleElement ? GetTriangleVTKType(elem.NodeCount) 
-                                                       : GetQuadVTKType(elem.NodeCount);
-                sw.WriteLine(vtkType);
+                sw.WriteLine(GetVTKType(elem));
             }
 
             // Write cell data (element phase)
@@ -218,22 +164,6 @@ namespace FDEMCore.FxTMesh.IO
             foreach (var elem in mesh.Elements)
             {
                 sw.WriteLine(elem.Id.ToString(CultureInfo.InvariantCulture));
-            }
-
-            // Element type (0 = interior triangle, 1 = fiber triangle, 2 = matrix quad, 3 = matrix triangle fiber-boundary)
-            sw.WriteLine("SCALARS element_type int 1");
-            sw.WriteLine("LOOKUP_TABLE default");
-            foreach (var elem in mesh.Elements)
-            {
-                int elemType = elem switch
-                {
-                    TriangleElement tri when tri.NodeCount == 3 && tri.Phase == ElementPhase.Matrix => 0,
-                    TriangleElement tri when tri.NodeCount == 6 && tri.Phase == ElementPhase.Fiber => 1,
-                    QuadElement quad when quad.NodeCount == 8 && quad.Phase == ElementPhase.Matrix => 2,
-                    TriangleElement tri when tri.NodeCount == 6 && tri.Phase == ElementPhase.Matrix => 3,
-                    _ => -1
-                };
-                sw.WriteLine(elemType.ToString(CultureInfo.InvariantCulture));
             }
 
             // Element node count
@@ -268,20 +198,43 @@ namespace FDEMCore.FxTMesh.IO
             return -1; // not found
         }
 
-        private static int GetTriangleVTKType(int nodeCount) => nodeCount switch
+        private static int GetVTKType(Element elem)
         {
-            3 => 5,   // VTK_TRIANGLE
-            6 => 22,  // VTK_QUADRATIC_TRIANGLE
-            _ => 5
-        };
+            return elem.ElementName switch
+            {
+                "2DT3" => 5,
+                "2DT6" => 22,
+                "2DT6.4" => 22,
+                "2DT9" => 69,   // fallback/check later if ParaView supports this as expected
 
-        private static int GetQuadVTKType(int nodeCount) => nodeCount switch
+                "2DQ4" => 9,
+                "2DQ6" => 9,    // fallback visualization only
+                "2DQ8" => 23,
+                "2DQ8.9" => 23,
+                "2DQ9" => 28,
+
+                "2DQ12" => 70,  // fallback/check later
+                "2DQ16" => 70,  // fallback/check later
+
+                _ => throw new NotSupportedException($"No VTK type for {elem.ElementName}")
+            };
+        }
+
+        private static int[] GetVTKOrder(Element elem)
         {
-            4 => 9,   // VTK_QUAD
-            8 => 23,  // VTK_QUADRATIC_QUAD
-            9 => 28,  // VTK_BIQUADRATIC_QUAD
-            _ => 9
-        };
+            return elem.ElementName switch
+            {
+                "2DT3" => new[] { 0, 1, 2 },
+
+                "2DT6" or "2DT6.4" => new[] { 0, 2, 4, 1, 3, 5 },
+
+                "2DQ8" or "2DQ8.9" => new[] { 0, 2, 4, 6, 1, 3, 5, 7 },
+
+                "2DQ9" => new[] { 0, 2, 4, 6, 1, 3, 5, 7, 8 },
+
+                _ => Enumerable.Range(0, elem.NodeCount).ToArray()
+            };
+        }
 
         private static string Form(string s) => s.Replace(",", "."); // defensive if culture changes
     }

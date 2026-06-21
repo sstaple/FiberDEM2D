@@ -1,5 +1,6 @@
 using FDEMCore.FxTMesh.Geometry;
 using FDEMCore.FxTMesh.Meshing.Elements;
+using FDEMCore.FxTMesh.Meshing;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -9,16 +10,17 @@ using System.IO;
 namespace FDEMCore.FxTMesh.Meshing
 {
     /// <summary>
-    /// Builds finite elements from a Delaunay triangulation.
+    /// Builds finite element mesh from a Delaunay triangulation.
     /// </summary>
-    public sealed class ElementBuilder
+    public sealed class MeshBuilder
     {
         private readonly List<Point2D> _globalNodes = new();
         private readonly Dictionary<string, int> _nodeToIndex = new();
-        private readonly List<BaseElement> _elements = new();
+        private readonly List<Element> _elements = new();
         private int _elementIdCounter = 0;
         private const double NodeTolerance = 1e-5;
         private double DomainTolerance;
+        private IElementBuilder _elementBuilder;
 
         public FEMesh BuildMesh(TriangulationMesh2D triangulation,IReadOnlyList<Fiber> fibers,
             CellBoundary boundary,ElementConfig config, DebugOptions? dOptions = null)
@@ -30,6 +32,8 @@ namespace FDEMCore.FxTMesh.Meshing
             _elementIdCounter = 0;
             //scale tolerance to the magnitude of the problem domain (e.g. cell size) to prevent issues with very small or large coordinates
             DomainTolerance = boundary.ODimensions.Max() * NodeTolerance;
+
+            _elementBuilder = ElementBuilderProvider.Create(config);
 
             // Process each triangle to build interior matrix elements
             for (int i = 0; i < triangulation.Triangles.Count; i++)
@@ -46,7 +50,7 @@ namespace FDEMCore.FxTMesh.Meshing
             if (dOptions != null && dOptions.Debug)
             {
                 var interiorTriMesh = new FEMesh(_globalNodes.ToList(), _elements.ToList(),
-                    new List<(int, int)>(), new List<int>(), new List<int>());
+                    new List<(int, int)>(), new List<int>(), new List<int>(), null);
                 IO.VtkLegacyWriter.WriteUnstructuredMesh(dOptions.GetDebugFilePath("triMesh"), interiorTriMesh);
             }
 
@@ -57,7 +61,7 @@ namespace FDEMCore.FxTMesh.Meshing
             if (dOptions != null && dOptions.Debug)
             {
                 var fullMesh = new FEMesh(_globalNodes.ToList(), _elements.ToList(),
-                    new List<(int, int)>(), new List<int>(), new List<int>());
+                    new List<(int, int)>(), new List<int>(), new List<int>(), null);
                 IO.VtkLegacyWriter.WriteUnstructuredMesh(dOptions.GetDebugFilePath("AllMeshNoBoundary"), fullMesh);
             }
 
@@ -68,29 +72,17 @@ namespace FDEMCore.FxTMesh.Meshing
             if (dOptions != null && dOptions.Debug)
             {
                 var fullMesh = new FEMesh(_globalNodes.ToList(), _elements.ToList(),
-                    new List<(int, int)>(), new List<int>(), new List<int>());
+                    new List<(int, int)>(), new List<int>(), new List<int>(), null);
                 IO.VtkLegacyWriter.WriteUnstructuredMesh(dOptions.GetDebugFilePath("AllMesh"), fullMesh);
             }
 
             // Build periodic node pairs
-            var periodicPairs = BuildPeriodicNodePairs(triangulation, boundary);
-            var (topEdge, rightEdge) = BuildBoundaryEdgeNodes(boundary);
+            var periodicData = BuildPeriodicBoundaryData(boundary);
 
-            return new FEMesh(_globalNodes, _elements, periodicPairs, topEdge, rightEdge);
+            return new FEMesh( _globalNodes,_elements, periodicData.Pairs,periodicData.X1Nodes,periodicData.Y1Nodes,
+                periodicData.PinnedNode);
         }
 
-
-        private void AddTriangleElement(Point2D[] nodes, ElementPhase phase)
-        {
-            var element = new TriangleElement(_elementIdCounter++, phase, nodes);
-            _elements.Add(element);
-
-            // Add nodes to global list
-            foreach (var node in nodes)
-            {
-                AddOrGetGlobalNode(node);
-            }
-        }
 
         private int AddOrGetGlobalNode(Point2D node)
         {
@@ -411,17 +403,21 @@ namespace FDEMCore.FxTMesh.Meshing
             return elementNodes;
         }
 
+
         #region Find Projected Pairs
 
-        private List<(int, int)> BuildPeriodicNodePairs( TriangulationMesh2D triangulation, CellBoundary boundary)
+
+        private PeriodicBoundaryData BuildPeriodicBoundaryData(CellBoundary boundary)
         {
-            var pairs = new List<(int, int)>();
+            var result = new PeriodicBoundaryData();
             var pairKeys = new HashSet<string>();
 
             double lx = boundary.ODimensions[1];
             double ly = boundary.ODimensions[2];
-
             double tol = DomainTolerance;
+
+            bool xPeriodic = boundary.Walls[2].BoundaryType == BoundaryType.Periodic;
+            bool yPeriodic = boundary.Walls[4].BoundaryType == BoundaryType.Periodic;
 
             var nodeLookup = BuildGlobalNodeLookup(tol);
 
@@ -429,34 +425,32 @@ namespace FDEMCore.FxTMesh.Meshing
             {
                 var node = _globalNodes[i];
 
-                // left -> right
-                if (Math.Abs(node.X) < tol)
+                if (xPeriodic)
                 {
-                    TryAddPeriodicPair(
-                        i,
-                        new Point2D(node.X + lx, node.Y),
-                        nodeLookup,
-                        pairs,
-                        pairKeys,
-                        tol);
+                    if (TryAddPeriodicPair( i,new Point2D(node.X + lx, node.Y),nodeLookup,result.Pairs,
+                        pairKeys, tol))
+                    {
+                        result.X1Nodes.Add(i);
+                    }
                 }
 
-                // bottom -> top
-                if (Math.Abs(node.Y) < tol)
+                if (yPeriodic)
                 {
-                    TryAddPeriodicPair(
-                        i,
-                        new Point2D(node.X, node.Y + ly),
-                        nodeLookup,
-                        pairs,
-                        pairKeys,
-                        tol);
+                    if (TryAddPeriodicPair(  i,new Point2D(node.X, node.Y + ly), nodeLookup,
+                        result.Pairs, pairKeys,tol))
+                    {
+                        result.Y1Nodes.Add(i);
+                    }
                 }
             }
 
-            return pairs;
-        }
+            if (xPeriodic || yPeriodic)
+            {
+                result.PinnedNode = FindPinnedNode(tol);
+            }
 
+            return result;
+        }
         private Dictionary<string, List<int>> BuildGlobalNodeLookup(double tolerance)
         {
             var lookup = new Dictionary<string, List<int>>();
@@ -477,7 +471,7 @@ namespace FDEMCore.FxTMesh.Meshing
             return lookup;
         }
 
-        private void TryAddPeriodicPair( int nodeIndex, Point2D projectedPoint, Dictionary<string, List<int>> nodeLookup,
+        private bool TryAddPeriodicPair( int nodeIndex, Point2D projectedPoint, Dictionary<string, List<int>> nodeLookup,
             List<(int, int)> pairs, HashSet<string> pairKeys, double tolerance)
         {
             int? matchingNodeIndex = FindGlobalNodeIndex(
@@ -486,22 +480,22 @@ namespace FDEMCore.FxTMesh.Meshing
                 tolerance);
 
             if (!matchingNodeIndex.HasValue)
-                return;
+                return false;
 
             int i = nodeIndex;
             int j = matchingNodeIndex.Value;
 
             if (i == j)
-                return;
+                return false;
 
             string pairKey = $"{Math.Min(i, j)}_{Math.Max(i, j)}";
 
             if (!pairKeys.Add(pairKey))
-                return;
+                return false;
 
             pairs.Add((i, j));
+            return true;
         }
-
         private int? FindGlobalNodeIndex( Point2D target, Dictionary<string, List<int>> nodeLookup, double tolerance)
         {
             string key = GetRoundedPointKey(target, tolerance);
@@ -531,37 +525,41 @@ namespace FDEMCore.FxTMesh.Meshing
             return $"{ix}_{iy}";
         }
 
+        private int? FindPinnedNode(double tolerance)
+        {
+            int? bestIndex = null;
+            double bestDistanceSquared = double.MaxValue;
+
+            for (int i = 0; i < _globalNodes.Count; i++)
+            {
+                var node = _globalNodes[i];
+
+                double d2 = node.X * node.X + node.Y * node.Y;
+
+                if (d2 < bestDistanceSquared)
+                {
+                    bestDistanceSquared = d2;
+                    bestIndex = i;
+                }
+            }
+
+            return bestIndex;
+        }
         #endregion
 
         #region Add Methods
 
-
-        private void AddFiberElement(Point2D[] nodes, ElementPhase phase)
+        private void AddElement(ElementPhase phase, ElementBuildResult result)
         {
-            var element = new TriangleElement(_elementIdCounter++, phase, nodes);
+            var element = new Element(_elementIdCounter++, phase, result.ElementName, result.Nodes);
             _elements.Add(element);
 
-            foreach (var node in nodes)
-            {
+            foreach (var node in result.Nodes)
                 AddOrGetGlobalNode(node);
-            }
         }
-
-        private void AddQuadElement(Point2D[] nodes, ElementPhase phase)
-        {
-            var element = new QuadElement(_elementIdCounter++, phase, nodes);
-            _elements.Add(element);
-
-            foreach (var node in nodes)
-            {
-                AddOrGetGlobalNode(node);
-            }
-        }
-
         #endregion
 
         #region Find / Determine Methods
-
 
         private bool IsProjectedFiberNode(Node node)
         {
@@ -576,6 +574,10 @@ namespace FDEMCore.FxTMesh.Meshing
                 || node.Type == NodeType.BoundaryCorner;
         }
 
+
+        
+
+        
         /// <summary>
         /// Detects if any fibers in the triangle are too close to the opposite edge.
         /// Uses MATLAB's two-tier threshold approach:
@@ -1093,80 +1095,7 @@ namespace FDEMCore.FxTMesh.Meshing
             throw new InvalidOperationException($"Could not find element node for target node in triangle");
         }
 
-        /// <summary>
-        /// Determines the node ordering for a curved fiber element (6 nodes).
-        /// Based on MATLAB FE_Mesh_2D.DetermineFiberNodeOrder (lines 286-305).
-        /// </summary>
-        private Point2D[] DetermineFiberNodeOrder(Point2D fiberCenter, Point2D node1, Point2D node2, double fiberRadius,
-            bool isEdgeCCW)
-        {
-            var nodes = new Point2D[6];
-            nodes[0] = fiberCenter;
-
-            if (isEdgeCCW)
-            {
-                nodes[2] = node2;
-                nodes[4] = node1;
-            }
-            else
-            {
-                nodes[2] = node1;
-                nodes[4] = node2;
-            }
-
-            // Midpoint nodes
-            nodes[1] = new Point2D((nodes[0].X + nodes[2].X) / 2.0, (nodes[0].Y + nodes[2].Y) / 2.0);
-            nodes[5] = new Point2D((nodes[0].X + nodes[4].X) / 2.0, (nodes[0].Y + nodes[4].Y) / 2.0);
-
-            // Middle node on fiber surface
-            Point2D midPointBetweenNodes2And4 = new Point2D(
-                (nodes[2].X + nodes[4].X) / 2.0,
-                (nodes[2].Y + nodes[4].Y) / 2.0);
-
-            var midPointVector = MathHelper.MakeVector2D(fiberCenter, midPointBetweenNodes2And4);
-            double midPointAngle = Math.Atan2(midPointVector.Y, midPointVector.X);
-
-            nodes[3] = new Point2D(
-                fiberCenter.X + fiberRadius * Math.Cos(midPointAngle),
-                fiberCenter.Y + fiberRadius * Math.Sin(midPointAngle));
-
-            return nodes;
-        }
-
-        /// <summary>
-        /// Determines the node ordering for an interior matrix quad element (8 nodes).
-        /// Based on MATLAB FE_Mesh_2D.DetermineInteriorMatrixNodeOrder (lines 308-328).
-        /// </summary>
-        private Point2D[] DetermineInteriorMatrixNodeOrder(Point2D[] fiber1Nodes, Point2D[] fiber2Nodes, bool isEdgeCCW)
-        {
-            var nodes = new Point2D[8];
-
-            if (isEdgeCCW)
-            {
-                nodes[0] = fiber1Nodes[4];
-                nodes[1] = fiber1Nodes[3];
-                nodes[2] = fiber1Nodes[2];
-                nodes[4] = fiber2Nodes[4];
-                nodes[5] = fiber2Nodes[3];
-                nodes[6] = fiber2Nodes[2];
-            }
-            else
-            {
-                nodes[0] = fiber2Nodes[4];
-                nodes[1] = fiber2Nodes[3];
-                nodes[2] = fiber2Nodes[2];
-                nodes[4] = fiber1Nodes[4];
-                nodes[5] = fiber1Nodes[3];
-                nodes[6] = fiber1Nodes[2];
-            }
-
-            // Midpoint nodes
-            nodes[3] = new Point2D((nodes[2].X + nodes[4].X) / 2.0, (nodes[2].Y + nodes[4].Y) / 2.0);
-            nodes[7] = new Point2D((nodes[0].X + nodes[6].X) / 2.0, (nodes[0].Y + nodes[6].Y) / 2.0);
-
-            return nodes;
-        }
-
+        
         /// <summary>
         /// Finds all pairs of projected fiber nodes and boundary nodes that lie on the same edge, indicating a periodic connection.
         /// </summary>
@@ -1276,27 +1205,6 @@ namespace FDEMCore.FxTMesh.Meshing
         #region Builder Methods
         
 
-        private void AddBoundaryFiberToBoundaryMatrixTriangle( Point2D[] fiberNodes, Point2D boundaryPoint, bool isEdgeCCW)
-        {
-            var triNodes = new Point2D[6];
-
-            triNodes[0] = fiberNodes[2];
-            triNodes[1] = fiberNodes[4];
-            triNodes[2] = boundaryPoint;
-
-            triNodes[3] = new Point2D(
-                0.5 * (triNodes[1].X + triNodes[2].X),
-                0.5 * (triNodes[1].Y + triNodes[2].Y));
-
-            triNodes[4] = fiberNodes[3]; // curved midside node on fiber surface
-
-            triNodes[5] = new Point2D(
-                0.5 * (triNodes[2].X + triNodes[0].X),
-                0.5 * (triNodes[2].Y + triNodes[0].Y));
-
-            AddTriangleElement(triNodes, ElementPhase.Matrix);
-        }
-
         private void BuildBoundaryFiberMatrixElementsForFiberBoundaryPair(PeriodicFiberBoundaryPair pair,
             TriangulationMesh2D triangulation, IReadOnlyList<Fiber> fibers,CellBoundary boundary, ElementConfig config)
         {
@@ -1350,16 +1258,16 @@ namespace FDEMCore.FxTMesh.Meshing
                 projNodes,
                 new[] { projectedFiberNode, boundaryNode });
 
-            var fiberNodes = DetermineFiberNodeOrder(
-                projectedFiberCenter,
-                originalFiberSurfacePointProjected,
-                projectedFiberSurfacePoint,
-                fiber.Radius,
-                isEdgeCCW);
+            var fiberResult = _elementBuilder.BuildFiberTriangle(
+                projectedFiberCenter, originalFiberSurfacePointProjected,
+                projectedFiberSurfacePoint, fiber.Radius, isEdgeCCW);
 
-            AddFiberElement(fiberNodes, ElementPhase.Fiber);
+            AddElement(ElementPhase.Fiber, fiberResult);
 
-            AddBoundaryFiberToBoundaryMatrixTriangle( fiberNodes, boundaryPoint,isEdgeCCW);
+            var matrixResult = _elementBuilder.BuildFiberBoundaryMatrixTriangle(
+                fiberResult.Nodes, boundaryPoint, isEdgeCCW);
+
+            AddElement(ElementPhase.Matrix, matrixResult);
         }
 
         /// <summary>
@@ -1406,7 +1314,7 @@ namespace FDEMCore.FxTMesh.Meshing
             if (dOptions != null && dOptions.Debug)
             {
                 var triPlusFibMesh = new FEMesh(_globalNodes.ToList(), _elements.ToList(),
-                    new List<(int, int)>(), new List<int>(), new List<int>());
+                    new List<(int, int)>(), new List<int>(), new List<int>(), null);
                 IO.VtkLegacyWriter.WriteUnstructuredMesh(dOptions.GetDebugFilePath("triPlusFib"), triPlusFibMesh);
             }
 
@@ -1606,13 +1514,8 @@ namespace FDEMCore.FxTMesh.Meshing
                     (fiber2NodesForQuad[4], fiber2NodesForQuad[2]);
             }
 
-            var matrixNodes = DetermineInteriorMatrixNodeOrder(
-                fiber1Nodes,
-                fiber2NodesForQuad,
-                true);
-
-            AddQuadElement(matrixNodes, ElementPhase.Matrix);
-
+            var matrixResult = _elementBuilder.BuildMatrixQuad(fiber1Nodes, fiber2NodesForQuad, true);
+            AddElement(ElementPhase.Matrix, matrixResult);
         }
 
         /// <summary>
@@ -1624,16 +1527,12 @@ namespace FDEMCore.FxTMesh.Meshing
         {
             bool isEdgeCCW = true;
 
-            var fiberNodes = DetermineFiberNodeOrder(
-                projectedFiberCenter,
-                nodeFromOriginalSide,
-                nodeFromProjectedSide,
-                fiberRadius,
-                isEdgeCCW);
+            var result = _elementBuilder.BuildFiberTriangle(
+                projectedFiberCenter, nodeFromOriginalSide, nodeFromProjectedSide, fiberRadius, isEdgeCCW);
 
-            AddFiberElement(fiberNodes, ElementPhase.Fiber);
+            AddElement(ElementPhase.Fiber, result);
 
-            return fiberNodes;
+            return result.Nodes;
         }
 
         /// <summary>
@@ -1661,8 +1560,11 @@ namespace FDEMCore.FxTMesh.Meshing
             bool isEdgeCCW = CheckIfSharedEdgeIsCCWOrder(triangle1Nodes, sharedEdgeNodes);
 
             // Determine fiber node order (creates curved fiber surface with 6 nodes)
-            var fiber1Nodes = DetermineFiberNodeOrder(fiber1Center, fiber1Node_Tri1, fiber1Node_Tri2, fiber1.Radius, isEdgeCCW);
-            var fiber2Nodes = DetermineFiberNodeOrder(fiber2Center, fiber2Node_Tri1, fiber2Node_Tri2, fiber2.Radius, !isEdgeCCW);
+            var fiber1Result = _elementBuilder.BuildFiberTriangle(fiber1Center, fiber1Node_Tri1, fiber1Node_Tri2, fiber1.Radius, isEdgeCCW);
+            var fiber1Nodes = fiber1Result.Nodes;
+
+            var fiber2Result = _elementBuilder.BuildFiberTriangle(fiber2Center, fiber2Node_Tri1, fiber2Node_Tri2, fiber2.Radius, !isEdgeCCW);
+            var fiber2Nodes = fiber2Result.Nodes;
 
             // Check for zero thickness (overlap)
             var thicknessCheck = new Point2D(
@@ -1678,8 +1580,8 @@ namespace FDEMCore.FxTMesh.Meshing
                 fiber1Nodes, fiber2Nodes, fiber1.Radius, fiber2.Radius);
 
             // Build and add the two fiber elements
-            AddFiberElement(fiber1Nodes, ElementPhase.Fiber);
-            AddFiberElement(fiber2Nodes, ElementPhase.Fiber);
+            AddElement(ElementPhase.Fiber, new ElementBuildResult(fiber1Result.ElementName, fiber1Nodes));
+            AddElement(ElementPhase.Fiber, new ElementBuildResult(fiber2Result.ElementName, fiber2Nodes));
         }
 
         /// <summary>
@@ -1715,7 +1617,8 @@ namespace FDEMCore.FxTMesh.Meshing
             bool isEdgeCCW = CheckIfSharedEdgeIsCCWOrder(triangle1Nodes, sharedEdgeNodes);
 
             // Determine fiber node order (creates curved fiber surface with 6 nodes)
-            var fiberNodes = DetermineFiberNodeOrder(fiberCenter, fiberNode_Tri1, fiberNode_Tri2, fiber.Radius, isEdgeCCW);
+            var fiberResult = _elementBuilder.BuildFiberTriangle(fiberCenter, fiberNode_Tri1, fiberNode_Tri2, fiber.Radius, isEdgeCCW);
+            var fiberNodes = fiberResult.Nodes;
 
             // Check for zero thickness (overlap)
             var thicknessCheck = new Point2D(
@@ -1727,7 +1630,7 @@ namespace FDEMCore.FxTMesh.Meshing
                 return; // Skip zero-thickness elements
 
             // Build and add the single fiber element
-            AddFiberElement(fiberNodes, ElementPhase.Fiber);
+            AddElement(ElementPhase.Fiber, fiberResult);
         }
 
         /// <summary>
@@ -1754,8 +1657,12 @@ namespace FDEMCore.FxTMesh.Meshing
             bool isEdgeCCW = CheckIfSharedEdgeIsCCWOrder(triangle1Nodes, sharedEdgeNodes);
 
             // Determine fiber node order
-            var fiber1Nodes = DetermineFiberNodeOrder(fiber1Center, fiber1Node_Tri1, fiber1Node_Tri2, fiber1.Radius, isEdgeCCW);
-            var fiber2Nodes = DetermineFiberNodeOrder(fiber2Center, fiber2Node_Tri1, fiber2Node_Tri2, fiber2.Radius, !isEdgeCCW);
+            var fiber1Result = _elementBuilder.BuildFiberTriangle(fiber1Center, fiber1Node_Tri1, fiber1Node_Tri2, fiber1.Radius, isEdgeCCW);
+
+            var fiber2Result = _elementBuilder.BuildFiberTriangle( fiber2Center, fiber2Node_Tri1, fiber2Node_Tri2, fiber2.Radius, !isEdgeCCW);
+
+            var fiber1Nodes = fiber1Result.Nodes;
+            var fiber2Nodes = fiber2Result.Nodes;
 
             // Check for zero thickness
             var thicknessCheck = new Point2D(
@@ -1771,10 +1678,8 @@ namespace FDEMCore.FxTMesh.Meshing
                 fiber1Nodes, fiber2Nodes, fiber1.Radius, fiber2.Radius);
 
             // Determine matrix element node order (creates 8-node quad connecting the two fibers)
-            var matrixNodes = DetermineInteriorMatrixNodeOrder(fiber1Nodes, fiber2Nodes, isEdgeCCW);
-
-            // Build and add the quad element
-            AddQuadElement(matrixNodes, ElementPhase.Matrix);
+            var matrixResult = _elementBuilder.BuildMatrixQuad(fiber1Nodes, fiber2Nodes, isEdgeCCW);
+            AddElement(ElementPhase.Matrix, matrixResult);
         }
 
         /// <summary>
@@ -1822,57 +1727,16 @@ namespace FDEMCore.FxTMesh.Meshing
             // Determine if shared edge is in CCW order in triangle 1
             bool isEdgeCCW = CheckIfSharedEdgeIsCCWOrder(triangle1Nodes, sharedEdgeNodes);
 
-            // Determine fiber node order (creates curved fiber surface with 6 nodes)
-            var fiberNodes = DetermineFiberNodeOrder(fiberCenter, fiberNode_Tri1, fiberNode_Tri2, fiber.Radius, isEdgeCCW);
-
-            // Build 6-node triangular matrix element
-            // Node layout for 6-node triangle:
-            //     node2
-            //      /\
-            //     /  \
-            // n5 /    \ n3
-            //   /      \
-            //  /________\
-            // node0  n4  node1
-            //
-            // Where n3, n4, n5 are midpoint nodes
-
-            var triangleNodes = new Point2D[6];
-
-            // Corner nodes:
-            // - Two nodes on fiber surface (from fiber element nodes 2 and 4)
-            // - One node at boundary point
-            if (isEdgeCCW)
-            {
-                // Fiber node is first in shared edge
-                triangleNodes[0] = fiberNodes[2];  // First point on fiber surface
-                triangleNodes[1] = fiberNodes[4];  // Second point on fiber surface
-                triangleNodes[2] = boundaryNode_Tri1; // Boundary point
-            }
-            else
-            {
-                // Boundary node is first in shared edge
-                triangleNodes[0] = boundaryNode_Tri1; // Boundary point
-                triangleNodes[1] = fiberNodes[2];  // First point on fiber surface
-                triangleNodes[2] = fiberNodes[4];  // Second point on fiber surface
-            }
-
-            // Midpoint nodes:
-            // n3: midpoint between node1 and node2
-            triangleNodes[3] = new Point2D(
-                (triangleNodes[1].X + triangleNodes[2].X) / 2.0,
-                (triangleNodes[1].Y + triangleNodes[2].Y) / 2.0);
-
-            // n4: midpoint between node0 and node1 (on fiber surface - use node 3 from fiber element)
-            triangleNodes[4] = fiberNodes[3];
-
-            // n5: midpoint between node2 and node0
-            triangleNodes[5] = new Point2D(
-                (triangleNodes[2].X + triangleNodes[0].X) / 2.0,
-                (triangleNodes[2].Y + triangleNodes[0].Y) / 2.0);
-
             // Build and add the triangular matrix element
-            AddTriangleElement(triangleNodes, ElementPhase.Matrix);
+            var fiberResult = _elementBuilder.BuildFiberTriangle(
+                fiberCenter, fiberNode_Tri1, fiberNode_Tri2, fiber.Radius, isEdgeCCW);
+
+            var fiberNodes = fiberResult.Nodes;
+
+            var matrixResult = _elementBuilder.BuildFiberBoundaryMatrixTriangle(
+                fiberNodes, boundaryNode_Tri1, isEdgeCCW);
+
+            AddElement(ElementPhase.Matrix, matrixResult);
         }
 
         private (List<int> topEdge, List<int> rightEdge) BuildBoundaryEdgeNodes(CellBoundary boundary)
@@ -1953,7 +1817,8 @@ namespace FDEMCore.FxTMesh.Meshing
                 }
             }
 
-            AddTriangleElement(nodes, ElementPhase.Matrix);
+            var result = _elementBuilder.BuildInteriorMatrixTriangle(nodes[0], nodes[1], nodes[2]);
+            AddElement(ElementPhase.Matrix, result);
         }
 
         #endregion
@@ -2142,6 +2007,14 @@ namespace FDEMCore.FxTMesh.Meshing
 
         #region Data Classes
 
+
+        private sealed class PeriodicBoundaryData
+        {
+            public List<(int Node1, int Node2)> Pairs { get; } = new();
+            public List<int> X1Nodes { get; } = new();
+            public List<int> Y1Nodes { get; } = new();
+            public int? PinnedNode { get; set; }
+        }
 
         private class PeriodicFiberBoundaryPair
         {
