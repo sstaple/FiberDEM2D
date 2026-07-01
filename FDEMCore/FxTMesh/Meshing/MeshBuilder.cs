@@ -646,25 +646,30 @@ namespace FDEMCore.FxTMesh.Meshing
                     var node1 = nodes[edgeIdx];
                     var node2 = nodes[(edgeIdx + 1) % 3];
 
-                    // Look for edges with two PROJECTED fibers (same projection direction)
-                    bool compatible = (node1.Type == NodeType.ProjectedFiber && node2.Type == NodeType.ProjectedFiber 
-                        && node1.Offset != (0, 0) && node2.Offset != (0, 0)
-                        && node1.FiberId.HasValue && node2.FiberId.HasValue)
-                        &&
-                        (node1.Offset == node2.Offset ||
-                        (node1.Offset.ox == node2.Offset.ox && node1.Offset.ox != 0) ||
-                        (node1.Offset.oy == node2.Offset.oy && node1.Offset.oy != 0)
-                        );
+                    // Look for edges with two PROJECTED fiberss and  (same projection direction)
+                    bool bothProjected = node1.Type == NodeType.ProjectedFiber && node2.Type == NodeType.ProjectedFiber;
+                    bool isBoundaryEdge = false;
+                    if(bothProjected)
+                    {
+                        //check that it is an outside edge only if both are projected
+                        int trianglesWithFibers = CountTrianglesSharingProjectedEdge(triangulation, node1, node2);
+                        isBoundaryEdge = trianglesWithFibers == 1 ? true: false;
+                    }
+                        
 
                     /*if (node1.Type == NodeType.ProjectedFiber && node2.Type == NodeType.ProjectedFiber &&
                         node1.Offset == node2.Offset && node1.Offset != (0, 0) &&
                         node1.FiberId.HasValue && node2.FiberId.HasValue)
                     */
-                    if(compatible)
+                    if(bothProjected && isBoundaryEdge)
                     {
                         int projFiber1Id = node1.FiberId.Value;
                         int projFiber2Id = node2.FiberId.Value;
-                        var projectionDirection = node1.Offset;
+
+                        bool isShared = TryGetSharedProjectionDirection((int ox, int oy) a, (int ox, int oy) b, out (int ox, int oy) dir)
+
+                         var projectionDirection = node1.Offset;
+
                         if(node1.Offset != node2.Offset)
                         {
                             // If offsets are not equal, determine the dominant direction
@@ -715,6 +720,24 @@ namespace FDEMCore.FxTMesh.Meshing
             }
 
             return pairs;
+        }
+
+        private static bool TryGetSharedProjectionDirection((int ox, int oy) a, (int ox, int oy) b, out (int ox, int oy) dir)
+        {
+            if (a.ox != 0 && a.ox == b.ox)
+            {
+                dir = (a.ox, 0);
+                return true;
+            }
+
+            if (a.oy != 0 && a.oy == b.oy)
+            {
+                dir = (0, a.oy);
+                return true;
+            }
+
+            dir = (0, 0);
+            return false;
         }
 
         /// <summary>
@@ -1044,10 +1067,24 @@ namespace FDEMCore.FxTMesh.Meshing
             return -1;
         }
 
+        private int CountTrianglesSharingProjectedEdge( TriangulationMesh2D triangulation, Node a, Node b)
+        {
+            int count = 0;
+
+            foreach (var tri in triangulation.Triangles)
+            {
+                var nodes = new[]{ triangulation.Nodes[tri[0]], triangulation.Nodes[tri[1]], triangulation.Nodes[tri[2]]};
+
+                if (SharesEdge(nodes, a, b))
+                    count++;
+            }
+
+            return count;
+        }
         #endregion
 
         #region Builder Methods
-        
+
 
         private void BuildBoundaryFiberMatrixElementsForFiberBoundaryPair(PeriodicFiberBoundaryPair pair,
             TriangulationMesh2D triangulation, IReadOnlyList<Fiber> fibers,CellBoundary boundary, ElementConfig config)
