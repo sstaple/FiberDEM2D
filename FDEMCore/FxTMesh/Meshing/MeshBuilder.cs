@@ -666,18 +666,7 @@ namespace FDEMCore.FxTMesh.Meshing
                         int projFiber1Id = node1.FiberId.Value;
                         int projFiber2Id = node2.FiberId.Value;
 
-                        bool isShared = TryGetSharedProjectionDirection((int ox, int oy) a, (int ox, int oy) b, out (int ox, int oy) dir)
-
-                         var projectionDirection = node1.Offset;
-
-                        if(node1.Offset != node2.Offset)
-                        {
-                            // If offsets are not equal, determine the dominant direction
-                            if (node1.Offset.ox != 0 && node2.Offset.ox != 0)
-                                projectionDirection = (node1.Offset.ox, 0);
-                            else if (node1.Offset.oy != 0 && node2.Offset.oy != 0)
-                                projectionDirection = (0, node1.Offset.oy);
-                        }
+                        bool isShared = TryGetSharedProjectionDirection(node1.Offset, node2.Offset, out var projectionDirection);
 
                         Console.WriteLine($"Debug: Found edge with two projected fibers {projFiber1Id},{projFiber2Id} in direction {projectionDirection}");
 
