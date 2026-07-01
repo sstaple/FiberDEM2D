@@ -3,9 +3,9 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
-using FxTMeshGenerator.Meshing;
-using FxTMeshGenerator.Geometry;
-using FxTMeshGenerator.IO;
+using FDEMCore.FxTMesh.Meshing;
+using FDEMCore.FxTMesh.Geometry;
+using FDEMCore.FxTMesh.IO;
 using FDEMCore;
 
 namespace FxTMeshGenerator.Tests
@@ -101,14 +101,14 @@ namespace FxTMeshGenerator.Tests
             Assert.That(triangulationMesh, Is.Not.Null, "Mesh should be created");
 
             // Generate full FE mesh with elements for better visualization
-            var elementBuilder = new ElementBuilder();
+            var elementBuilder = new MeshBuilder();
             string vtkMeshPath = System.IO.Path.Combine(TestContext.CurrentContext.TestDirectory, "V0p7YPeriodic_Test_mesh.vtk");
 
             var feMesh = elementBuilder.BuildMesh(
                 triangulationMesh,
                 fibers,
                 boundary,
-                ElementConfig.Simple);
+                ElementConfig.Type2);
 
             // Write the full mesh
             VtkLegacyWriter.WriteUnstructuredMesh(vtkMeshPath, feMesh);

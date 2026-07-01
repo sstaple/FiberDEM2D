@@ -2,8 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
-using FxTMeshGenerator.Meshing;
-using FxTMeshGenerator.Geometry;
+using FDEMCore.FxTMesh.Meshing;
+using FDEMCore.FxTMesh.Geometry;
 using FDEMCore;
 using Microsoft.Testing.Platform.Extensions.Messages;
 

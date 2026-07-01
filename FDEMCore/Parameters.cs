@@ -235,14 +235,15 @@ namespace FDEMCore
 			globalD = globalDamping;
 		}
 
-		public virtual void GetRVEBoundaryDimensions(out double h, out double w, int nFibers, double fiberVolumeFraction, double RVEHoW = 1.0)
+		public virtual void GetRVEBoundaryDimensions(out double h, out double w, int nFibers, double fiberVolumeFraction, double RVEHoW = 1.0, double RVEThickness = -1.0)
         {
 			double totalArea = nFibers * (Math.PI * r * r) / fiberVolumeFraction;
-			h = Math.Sqrt(totalArea * RVEHoW);
-			w = h / RVEHoW;
-           // return Math.Sqrt(nFibers * (Math.PI * r * r) / fiberVolumeFraction); //NRows * 2 * r * 2;
-		}
-		public void GetAndCheckRVEBoundaryDimension(out double h, out double w, List<Fiber> lFibers, double fiberVolumeFraction, double hoverw = 1.0)
+			h = (RVEThickness > 0) ? RVEThickness : Math.Sqrt(totalArea * RVEHoW);
+            w = totalArea / h;
+
+            // return Math.Sqrt(nFibers * (Math.PI * r * r) / fiberVolumeFraction); //NRows * 2 * r * 2;
+        }
+		public void GetAndCheckRVEBoundaryDimension(out double h, out double w, List<Fiber> lFibers, double fiberVolumeFraction, double hoverw = 1.0, double RVEThickness = -1.0)
         {
 			double fiberArea = 0;
             foreach (Fiber f in lFibers)
@@ -250,8 +251,8 @@ namespace FDEMCore
 				fiberArea += f.Radius * f.Radius * Math.PI;
             }
             double totalArea = fiberArea / fiberVolumeFraction;
-            h = Math.Sqrt(totalArea * hoverw);
-            w = h / hoverw;
+            h = (RVEThickness > 0) ? RVEThickness : Math.Sqrt(totalArea * hoverw);
+            w = totalArea / h;
         }
 	}
 
@@ -306,7 +307,7 @@ namespace FDEMCore
 			return radius;
         }
 
-        public override void GetRVEBoundaryDimensions(out double h, out double w, int nFibers, double fiberVolumeFraction, double RVEHoW = 1.0)
+        public override void GetRVEBoundaryDimensions(out double h, out double w, int nFibers, double fiberVolumeFraction, double RVEHoW = 1.0, double RVEThickness = -1.0)
         {
 			double areaOfFibers = 0;
 
@@ -316,8 +317,8 @@ namespace FDEMCore
             }
 
             double totalArea = areaOfFibers / fiberVolumeFraction;
-            h = Math.Sqrt(totalArea * RVEHoW);
-            w = h / RVEHoW;
-		}
+            h = (RVEThickness > 0) ? RVEThickness : Math.Sqrt(totalArea * RVEHoW);
+            w = w = totalArea / h;
+        }
 	}
 }

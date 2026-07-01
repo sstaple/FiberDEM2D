@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.IO;
+using System.Net.Http.Json;
 
 
 namespace FDEMCore.FxTMesh.Meshing
@@ -76,8 +77,8 @@ namespace FDEMCore.FxTMesh.Meshing
                 IO.VtkLegacyWriter.WriteUnstructuredMesh(dOptions.GetDebugFilePath("AllMesh"), fullMesh);
             }
 
-            // Build periodic node pairs
-            var periodicData = BuildPeriodicBoundaryData(boundary);
+            // Build periodic node pairs and node regions
+            var periodicData = IdentifyImportantNodes.BuildPeriodicBoundaryData(boundary, DomainTolerance, _globalNodes);
 
             return new FEMesh( _globalNodes,_elements, periodicData.Pairs,periodicData.X1Nodes,periodicData.Y1Nodes,
                 periodicData.PinnedNode);
@@ -403,150 +404,6 @@ namespace FDEMCore.FxTMesh.Meshing
             return elementNodes;
         }
 
-
-        #region Find Projected Pairs
-
-
-        private PeriodicBoundaryData BuildPeriodicBoundaryData(CellBoundary boundary)
-        {
-            var result = new PeriodicBoundaryData();
-            var pairKeys = new HashSet<string>();
-
-            double lx = boundary.ODimensions[1];
-            double ly = boundary.ODimensions[2];
-            double tol = DomainTolerance;
-
-            bool xPeriodic = boundary.Walls[2].BoundaryType == BoundaryType.Periodic;
-            bool yPeriodic = boundary.Walls[4].BoundaryType == BoundaryType.Periodic;
-
-            var nodeLookup = BuildGlobalNodeLookup(tol);
-
-            for (int i = 0; i < _globalNodes.Count; i++)
-            {
-                var node = _globalNodes[i];
-
-                if (xPeriodic)
-                {
-                    if (TryAddPeriodicPair( i,new Point2D(node.X + lx, node.Y),nodeLookup,result.Pairs,
-                        pairKeys, tol))
-                    {
-                        result.X1Nodes.Add(i);
-                    }
-                }
-
-                if (yPeriodic)
-                {
-                    if (TryAddPeriodicPair(  i,new Point2D(node.X, node.Y + ly), nodeLookup,
-                        result.Pairs, pairKeys,tol))
-                    {
-                        result.Y1Nodes.Add(i);
-                    }
-                }
-            }
-
-            if (xPeriodic || yPeriodic)
-            {
-                result.PinnedNode = FindPinnedNode(tol);
-            }
-
-            return result;
-        }
-        private Dictionary<string, List<int>> BuildGlobalNodeLookup(double tolerance)
-        {
-            var lookup = new Dictionary<string, List<int>>();
-
-            for (int i = 0; i < _globalNodes.Count; i++)
-            {
-                string key = GetRoundedPointKey(_globalNodes[i], tolerance);
-
-                if (!lookup.TryGetValue(key, out var indices))
-                {
-                    indices = new List<int>();
-                    lookup[key] = indices;
-                }
-
-                indices.Add(i);
-            }
-
-            return lookup;
-        }
-
-        private bool TryAddPeriodicPair( int nodeIndex, Point2D projectedPoint, Dictionary<string, List<int>> nodeLookup,
-            List<(int, int)> pairs, HashSet<string> pairKeys, double tolerance)
-        {
-            int? matchingNodeIndex = FindGlobalNodeIndex(
-                projectedPoint,
-                nodeLookup,
-                tolerance);
-
-            if (!matchingNodeIndex.HasValue)
-                return false;
-
-            int i = nodeIndex;
-            int j = matchingNodeIndex.Value;
-
-            if (i == j)
-                return false;
-
-            string pairKey = $"{Math.Min(i, j)}_{Math.Max(i, j)}";
-
-            if (!pairKeys.Add(pairKey))
-                return false;
-
-            pairs.Add((i, j));
-            return true;
-        }
-        private int? FindGlobalNodeIndex( Point2D target, Dictionary<string, List<int>> nodeLookup, double tolerance)
-        {
-            string key = GetRoundedPointKey(target, tolerance);
-
-            if (!nodeLookup.TryGetValue(key, out var candidateIndices))
-                return null;
-
-            foreach (int candidateIndex in candidateIndices)
-            {
-                var candidate = _globalNodes[candidateIndex];
-
-                double dx = candidate.X - target.X;
-                double dy = candidate.Y - target.Y;
-
-                if (Math.Sqrt(dx * dx + dy * dy) < tolerance)
-                    return candidateIndex;
-            }
-
-            return null;
-        }
-
-        private static string GetRoundedPointKey(Point2D point, double tolerance)
-        {
-            long ix = (long)Math.Round(point.X / tolerance);
-            long iy = (long)Math.Round(point.Y / tolerance);
-
-            return $"{ix}_{iy}";
-        }
-
-        private int? FindPinnedNode(double tolerance)
-        {
-            int? bestIndex = null;
-            double bestDistanceSquared = double.MaxValue;
-
-            for (int i = 0; i < _globalNodes.Count; i++)
-            {
-                var node = _globalNodes[i];
-
-                double d2 = node.X * node.X + node.Y * node.Y;
-
-                if (d2 < bestDistanceSquared)
-                {
-                    bestDistanceSquared = d2;
-                    bestIndex = i;
-                }
-            }
-
-            return bestIndex;
-        }
-        #endregion
-
         #region Add Methods
 
         private void AddElement(ElementPhase phase, ElementBuildResult result)
@@ -575,9 +432,9 @@ namespace FDEMCore.FxTMesh.Meshing
         }
 
 
-        
 
-        
+
+
         /// <summary>
         /// Detects if any fibers in the triangle are too close to the opposite edge.
         /// Uses MATLAB's two-tier threshold approach:
@@ -587,39 +444,7 @@ namespace FDEMCore.FxTMesh.Meshing
         /// </summary>
         private FiberOverlapInfo[] DetectFiberOverlaps(Node[] triangleNodes, IReadOnlyList<Fiber> fibers)
         {
-            var overlapInfo = new FiberOverlapInfo[3];
-
-            for (int i = 0; i < 3; i++)
-            {
-                overlapInfo[i] = new FiberOverlapInfo();
-
-                var currentNode = triangleNodes[i];
-                if (currentNode.Type != NodeType.FiberCenter && currentNode.Type != NodeType.ProjectedFiber)
-                    continue;
-
-                var fiber = fibers[currentNode.FiberId.Value];
-                var otherIndices = GetOtherIndices(i);
-                var otherNode1 = triangleNodes[otherIndices[0]];
-                var otherNode2 = triangleNodes[otherIndices[1]];
-
-                // Calculate minimum distance from fiber to the opposite edge
-                double minDist = CalculatePointToLineDistance(
-                    currentNode.P,
-                    otherNode1.P,
-                    otherNode2.P);
-
-                // MATLAB threshold 1: Critical overlap (factor 20)
-                // fiber.Radius + fiber.Radius/20 means surface is very close to edge
-                double criticalThreshold = fiber.Radius + fiber.Radius / 30.0;
-                overlapInfo[i].HasCriticalOverlap = minDist <= criticalThreshold;
-
-                // MATLAB threshold 2: Adjustment needed (factor 2)
-                // fiber.Radius + fiber.Radius/2 means inner triangle is narrow
-                double adjustmentThreshold = fiber.Radius + fiber.Radius / 2.0;
-                overlapInfo[i].NeedsAdjustment = minDist <= adjustmentThreshold;
-            }
-
-            return overlapInfo;
+            return TriangleQuality.DetectFiberOverlaps(triangleNodes, fibers);
         }
 
         /// <summary>
@@ -822,13 +647,32 @@ namespace FDEMCore.FxTMesh.Meshing
                     var node2 = nodes[(edgeIdx + 1) % 3];
 
                     // Look for edges with two PROJECTED fibers (same projection direction)
-                    if (node1.Type == NodeType.ProjectedFiber && node2.Type == NodeType.ProjectedFiber &&
+                    bool compatible = (node1.Type == NodeType.ProjectedFiber && node2.Type == NodeType.ProjectedFiber 
+                        && node1.Offset != (0, 0) && node2.Offset != (0, 0)
+                        && node1.FiberId.HasValue && node2.FiberId.HasValue)
+                        &&
+                        (node1.Offset == node2.Offset ||
+                        (node1.Offset.ox == node2.Offset.ox && node1.Offset.ox != 0) ||
+                        (node1.Offset.oy == node2.Offset.oy && node1.Offset.oy != 0)
+                        );
+
+                    /*if (node1.Type == NodeType.ProjectedFiber && node2.Type == NodeType.ProjectedFiber &&
                         node1.Offset == node2.Offset && node1.Offset != (0, 0) &&
                         node1.FiberId.HasValue && node2.FiberId.HasValue)
+                    */
+                    if(compatible)
                     {
                         int projFiber1Id = node1.FiberId.Value;
                         int projFiber2Id = node2.FiberId.Value;
                         var projectionDirection = node1.Offset;
+                        if(node1.Offset != node2.Offset)
+                        {
+                            // If offsets are not equal, determine the dominant direction
+                            if (node1.Offset.ox != 0 && node2.Offset.ox != 0)
+                                projectionDirection = (node1.Offset.ox, 0);
+                            else if (node1.Offset.oy != 0 && node2.Offset.oy != 0)
+                                projectionDirection = (0, node1.Offset.oy);
+                        }
 
                         Console.WriteLine($"Debug: Found edge with two projected fibers {projFiber1Id},{projFiber2Id} in direction {projectionDirection}");
 
@@ -1817,6 +1661,11 @@ namespace FDEMCore.FxTMesh.Meshing
                 }
             }
 
+            if (SignedArea2(nodes[0], nodes[1], nodes[2]) < 0.0)
+            {
+                (nodes[1], nodes[2]) = (nodes[2], nodes[1]);
+            }
+
             var result = _elementBuilder.BuildInteriorMatrixTriangle(nodes[0], nodes[1], nodes[2]);
             AddElement(ElementPhase.Matrix, result);
         }
@@ -1825,7 +1674,11 @@ namespace FDEMCore.FxTMesh.Meshing
 
         #region Math Helpers
 
-
+        private static double SignedArea2(Point2D a, Point2D b, Point2D c)
+        {
+            return (b.X - a.X) * (c.Y - a.Y)
+                 - (b.Y - a.Y) * (c.X - a.X);
+        }
         private static double DistanceSquared(Point2D a, Point2D b)
         {
             double dx = a.X - b.X;
@@ -2076,24 +1929,6 @@ namespace FDEMCore.FxTMesh.Meshing
             TwoBoundaries
         }
 
-        /// <summary>
-        /// Information about fiber overlap detection for a single fiber in a triangle.
-        /// Based on MATLAB Triad two-threshold approach.
-        /// </summary>
-        private class FiberOverlapInfo
-        {
-            /// <summary>
-            /// Critical overlap: fiber surface crosses or is very close to the opposite edge.
-            /// Factor 20 threshold from MATLAB. Should throw exception.
-            /// </summary>
-            public bool HasCriticalOverlap { get; set; }
-
-            /// <summary>
-            /// Adjustment needed: inner triangle is narrow and needs midpoint adjustment.
-            /// Factor 2 threshold from MATLAB. Should adjust direction.
-            /// </summary>
-            public bool NeedsAdjustment { get; set; }
-        }
         #endregion
     }
 }

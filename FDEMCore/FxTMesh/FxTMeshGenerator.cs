@@ -7,8 +7,7 @@ namespace FDEMCore.FxTMesh
 {
     public static class FxTMeshGenerator
     {
-        public static FEMesh GenerateFromPack(Packing pack, string? debugDirectory = null, string? debugFileName = null,
-            bool debug = false,  MeshOptions? meshOptions = null, ElementConfig? elementConfig = null)
+        public static FEMesh GenerateFromPack(Packing pack, DebugOptions? debugOptions = null,  MeshOptions? meshOptions = null, ElementConfig? elementConfig = null)
         {
             if (pack == null)
                 throw new ArgumentNullException(nameof(pack));
@@ -16,13 +15,6 @@ namespace FDEMCore.FxTMesh
             meshOptions ??= new MeshOptions();
             elementConfig ??= ElementConfig.Standard;
 
-            DebugOptions? debugOptions = null;
-
-            if (debug)
-            {
-                debugOptions = new DebugOptions{ Debug = true, Directory = debugDirectory ?? "debug_output", 
-                    FileName = debugFileName ?? "FxTMesh"};
-            }
 
             var triangulator = new DelaunayTriangulator();
 

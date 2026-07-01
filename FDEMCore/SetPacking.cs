@@ -518,6 +518,7 @@ namespace FDEMCore
 		public bool saveFinalPositions = false;
 		public bool saveFinalPositionsWithoutProjections = false;
         public double RVEHOverW = 1.0;
+        public double RVEThickness = -1.0;
         public double contactDampingCoeff = 0.1;
 		public double globalDampingCoeff = 1.0;
 		public double increasingDampingCoeff = 0.001;
@@ -554,13 +555,13 @@ namespace FDEMCore
 			double [] z = new double[6];
 
             //reset boundary
-            fiberParams.GetRVEBoundaryDimensions(out height, out width, nFibers, fVolFraction, RVEHOverW);
+            fiberParams.GetRVEBoundaryDimensions(out height, out width, nFibers, fVolFraction, RVEHOverW, RVEThickness);
 
             lFibers = SetRandomFibers(nDiv, cb, nFibers, height, width, squareMargin, fiberParams, out double marginSize);
 
 			//re-calculate the initial size of the boundary, then re-make the boundary.  Do this because when multiple radii are in play, the boundary needs to be adjusted a little
 			//To make the fiber volume fraction correct.
-			fParams.GetAndCheckRVEBoundaryDimension(out height, out width, lFibers, fVolFraction, RVEHOverW);
+			fParams.GetAndCheckRVEBoundaryDimension(out height, out width, lFibers, fVolFraction, RVEHOverW, RVEThickness);
 			
 			cb = new CellBoundary(new double[3] { fiberParams.l, width, height }, bottomLeftBackCorner, boundaryTypes : boundaryTypes);
 
@@ -575,7 +576,7 @@ namespace FDEMCore
 		protected override void SetNRows(int inNRows){
 
 			nFibers = isNRowsActuallyNFibers ? inNRows : inNRows * inNRows;
-			fiberParams.GetRVEBoundaryDimensions(out height, out width, nFibers, fVolFraction, RVEHOverW);
+			fiberParams.GetRVEBoundaryDimensions(out height, out width, nFibers, fVolFraction, RVEHOverW, RVEThickness);
 			
 		}
 		//Run Relaxation Analysis
@@ -739,7 +740,11 @@ namespace FDEMCore
 					myRanPack.RVEHOverW = Convert.ToDouble(temp[1]);
                     myRanPack.SetNRows(myRanPack.NRows);
                     break;
-				case "MaxSteps":
+                case "RVEThickness":
+                    myRanPack.RVEThickness = Convert.ToDouble(temp[1]);
+                    myRanPack.SetNRows(myRanPack.NRows);
+                    break;
+                case "MaxSteps":
                     myRanPack.nMaxSteps = Convert.ToInt32(temp[1]);
                     break;
                 case "UndampedSteps":

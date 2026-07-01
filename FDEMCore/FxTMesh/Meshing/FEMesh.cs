@@ -21,13 +21,8 @@ namespace FDEMCore.FxTMesh.Meshing
         public IReadOnlyList<int> Y1Nodes { get; init; }
         public int? PinnedNode { get; init; }
 
-        public FEMesh(
-    IReadOnlyList<Point2D> globalNodes,
-    IReadOnlyList<Element> elements,
-    IReadOnlyList<(int, int)> periodicPairs,
-    IReadOnlyList<int> x1Nodes,
-    IReadOnlyList<int> y1Nodes,
-    int? pinnedNode)
+        public FEMesh( IReadOnlyList<Point2D> globalNodes, IReadOnlyList<Element> elements, IReadOnlyList<(int, int)> periodicPairs,
+            IReadOnlyList<int> x1Nodes, IReadOnlyList<int> y1Nodes, int? pinnedNode)
         {
             GlobalNodes = globalNodes;
             Elements = elements;

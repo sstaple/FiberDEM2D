@@ -6,7 +6,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Xml.Linq;
 using FDEMCore;
-using System.IO;
 
 namespace FDEMCore.FxTMesh.Meshing
 {
@@ -50,7 +49,7 @@ namespace FDEMCore.FxTMesh.Meshing
 
             //Debugging: triangulation AFTER optimization (before filtering)
             if (dOptions.Debug) CreateVTKFileFromTriangulation(uniqueNodes, delaunay, dOptions);
-            
+
             // Step 7: Remove the triangles that are part of the projections (keep only those with original fibers or boundary points, and reject based on projection offsets)
             var (cleanedNodes, cleanedTris) = RemoveProjectionTriangles(uniqueNodes, delaunay,
                 originalFiberNodes, cornerNodes, edgeNodes, options);
@@ -78,8 +77,8 @@ namespace FDEMCore.FxTMesh.Meshing
             return originalFiberNodes;
         }
 
-        private List<Node> CombineNodesAndAddProjections(List<Node> originalFiberNodes,List<Node> cornerNodes,
-            List<Node> edgeNodes,CellBoundary boundary)
+        private List<Node> CombineNodesAndAddProjections(List<Node> originalFiberNodes, List<Node> cornerNodes,
+            List<Node> edgeNodes, CellBoundary boundary)
         {
             // Start with fibers, corners (no projections), and edge points
             var nodes = new List<Node>();
@@ -193,7 +192,7 @@ namespace FDEMCore.FxTMesh.Meshing
                 if (ShouldTheTriangleBeKept(uniqueNodes[ia], uniqueNodes[ib], uniqueNodes[ic]))
                 {
                     // Add triangle with remapped indices ✅
-                    cleanedTris.Add(new int[3]{oldToNewIndexMap[ia],oldToNewIndexMap[ib],oldToNewIndexMap[ic]});
+                    cleanedTris.Add(new int[3] { oldToNewIndexMap[ia], oldToNewIndexMap[ib], oldToNewIndexMap[ic] });
                 }
             }
 
@@ -215,10 +214,10 @@ namespace FDEMCore.FxTMesh.Meshing
 
             if (includeCorners)
             {
-                var cornerPts = boundary.Find2DCornersAtCurrentStrain();
+                var cornerPts = boundary.Find2DCornersAtCurrentStrainDouble();
                 for (int i = 0; i < cornerPts.Length; i++)
                 {
-                    cornerNodes.Add(new Node(new Point2D(cornerPts[i].X, cornerPts[i].Y), null, 
+                    cornerNodes.Add(new Node(new Point2D(cornerPts[i][0], cornerPts[i][1]), null,
                         NodeType.BoundaryCorner, cornerOffsets[i]));
                 }
             }
@@ -462,7 +461,17 @@ namespace FDEMCore.FxTMesh.Meshing
 
 
         #region Methods to help quality evaltuation and re-triangulation decisions
-
+        
+        
+        public sealed class SwapCandidate
+        {
+            public int Tri1 { get; init; }
+            public int Tri2 { get; init; }
+            public int[] SharedEdge { get; init; }
+            public double Priority { get; init; }
+            public int Version1 { get; init; }
+            public int Version2 { get; init; }
+        }
 
 
         /// <summary>
@@ -581,204 +590,282 @@ namespace FDEMCore.FxTMesh.Meshing
 
             // Configuration parameters
             const double ASPECT_RATIO_THRESHOLD = 2.5; // Don't bother swapping if aspect ratio is already decent
-            const int MAX_ITERATIONS = 100;
-            const int MAX_STALL_ITERATIONS = 5; // Stop if no progress after this many iterations
+            const int MAX_SWAPS = 10000;
 
-            int iterationCount = 0;
-            int totalSwaps = 0;
-            int stallCount = 0;
-            var recentSwaps = new HashSet<(int, int)>(); // Track recent swaps to detect cycles
-            bool anySwapOccurred;
+            int triangleCount = delaunay.Triangles.Length / 3;
+            int[] triangleVersions = new int[triangleCount];
 
-            do
+            var queue = new PriorityQueue<SwapCandidate, double>();
+
+            var initialEdges = FindAllInteriorEdges(uniqueNodes, delaunay.Triangles);
+
+            foreach (var (tri1Idx, tri2Idx, sharedEdge) in initialEdges)
             {
-                anySwapOccurred = false;
-                iterationCount++;
-
-                // Find all interior edges
-                var interiorEdges = FindAllInteriorEdges(uniqueNodes, delaunay.Triangles);
-
-                // Evaluate all edges and find the best single swap
-                double bestPriority = -1;
-                int bestTri1 = -1, bestTri2 = -1;
-                int[] bestQuad = null;
-                int[] bestSharedEdge = null; // Track the shared edge for the best swap
-                (int inversions, int overlaps, double innerAspect, double outerAspect) bestCurrent = default;
-                (int inversions, int overlaps, double innerAspect, double outerAspect) bestSwapped = default;
-
-                // Track statistics for this iteration
-                int inversionsFound = 0;
-                int qualityImprovementsFound = 0;
-
-                foreach (var (tri1Idx, tri2Idx, sharedEdge) in interiorEdges)
-                {
-                    var currentQuality = EvaluateQuadrilateralQuality(
-                        tri1Idx, tri2Idx, uniqueNodes, delaunay.Triangles, fibers, out var quad, sharedEdge);
-
-                    var swappedQuality = EvaluateSwappedQuadrilateralQuality(
-                        tri1Idx, tri2Idx, quad, sharedEdge, uniqueNodes, delaunay.Triangles, fibers);
-
-                    // Track inversions that could be fixed
-                    if (swappedQuality.inversions < currentQuality.inversions)
-                        inversionsFound++;
-
-                    // Track quality improvements (overlaps/aspect ratio, no inversion change)
-                    if (currentQuality.inversions == swappedQuality.inversions &&
-                        IsConfigurationBetter(swappedQuality, currentQuality))
-                        qualityImprovementsFound++;
-
-                    // Check if swap is worthwhile and not a recent swap (cycle detection)
-                    var swapKey = (Math.Min(tri1Idx, tri2Idx), Math.Max(tri1Idx, tri2Idx));
-                    if (IsSwapWorthwhile(currentQuality, swappedQuality, ASPECT_RATIO_THRESHOLD) &&
-                        !recentSwaps.Contains(swapKey))
-                    {
-                        double priority = CalculateSwapPriority(currentQuality, swappedQuality, uniqueNodes, fibers, quad);
-
-                        if (priority > bestPriority)
-                        {
-                            bestPriority = priority;
-                            bestTri1 = tri1Idx;
-                            bestTri2 = tri2Idx;
-                            bestQuad = quad;
-                            bestSharedEdge = sharedEdge; // Store the shared edge
-                            bestCurrent = currentQuality;
-                            bestSwapped = swappedQuality;
-                        }
-                    }
-                }
-
-                // Perform the best swap if found
-                int inversionSwapsPerformed = 0;
-                int qualitySwapsPerformed = 0;
-
-                if (bestPriority > -1)
-                {
-                    PerformEdgeSwap(bestTri1, bestTri2, bestSharedEdge, delaunay.Triangles, uniqueNodes);
-                    totalSwaps++;
-                    anySwapOccurred = true;
-                    stallCount = 0; // Reset stall counter
-
-                    // Track this swap for cycle detection (keep last 10 swaps)
-                    var swapKey = (Math.Min(bestTri1, bestTri2), Math.Max(bestTri1, bestTri2));
-                    recentSwaps.Add(swapKey);
-                    if (recentSwaps.Count > 10)
-                    {
-                        recentSwaps.Remove(recentSwaps.First());
-                    }
-
-                    // Categorize the swap
-                    if (bestSwapped.inversions < bestCurrent.inversions)
-                        inversionSwapsPerformed = 1;
-                    else if (bestSwapped.overlaps < bestCurrent.overlaps)
-                        inversionSwapsPerformed = 1;  // Treat overlap fixes as important
-                    else
-                        qualitySwapsPerformed = 1;
-
-                    // Write VTK after each swap for debugging
-                    if (dOptions != null && dOptions.Debug)
-                    {
-                        // Convert flat triangle array to List<int[]>
-                        var debugTris = new List<int[]>();
-                        for (int t = 0; t < delaunay.Triangles.Length; t += 3)
-                        {
-                            debugTris.Add(new int[3] { delaunay.Triangles[t], delaunay.Triangles[t + 1], delaunay.Triangles[t + 2] });
-                        }
-
-                        //CreateVTKFileFromTriangles(uniqueNodes,debugTris,dOptions);
-                        LogMessage($"  - Swapped triangles {bestTri1} and {bestTri2}: " +
-                                  $"inv {bestCurrent.inversions}->{bestSwapped.inversions}, " +
-                                  $"overlap {bestCurrent.overlaps}->{bestSwapped.overlaps}, " +
-                                  $"innerAR {bestCurrent.innerAspect:F2}->{bestSwapped.innerAspect:F2}", dOptions);
-                    }
-                }
-                else
-                {
-                    stallCount++;
-                }
-
-                // Log iteration summary
-                LogMessage($"Iteration {iterationCount}: " +
-                          $"# Inversions={inversionsFound}, Inversions Swapped={inversionSwapsPerformed}, " +
-                          $"# Quality Improvements={qualityImprovementsFound}, Quality Swapped={qualitySwapsPerformed}", dOptions);
-
-                // Stop if stalled (no beneficial swaps found)
-                if (stallCount >= MAX_STALL_ITERATIONS)
-                {
-                    LogMessage($"Converged: No beneficial swaps found for {MAX_STALL_ITERATIONS} iterations.", dOptions);
-                    break;
-                }
-
-                // Safety limit
-                if (iterationCount >= MAX_ITERATIONS)
-                {
-                    LogMessage($"Warning: Reached maximum iterations ({MAX_ITERATIONS}). Stopping optimization.", dOptions);
-                    break;
-                }
+                var candidate = CreateSwapCandidate(tri1Idx, tri2Idx, sharedEdge, uniqueNodes, delaunay.Triangles, fibers, triangleVersions, ASPECT_RATIO_THRESHOLD);
+                EnqueueCandidate(queue, candidate);
             }
-            while (anySwapOccurred || stallCount < MAX_STALL_ITERATIONS);
+
+            int totalSwaps = 0;
+            int staleCandidates = 0;
+            int rejectedCandidates = 0;
+
+            var recentSwapKeys = new Queue<string>();
+            var recentSwapSet = new HashSet<string>();
+            const int RECENT_SWAP_LIMIT = 50;
+
+            // Continue processing candidate edge swaps until there are no more candidates,
+            // or until we hit the safety limit on the total number of swaps.
+            while (queue.Count > 0 && totalSwaps < MAX_SWAPS)
+            {
+                // Pull the currently best swap candidate from the priority queue.
+                // This candidate was evaluated earlier, so it may now be stale.
+                var candidate = queue.Dequeue();
+
+                // Check whether either triangle has changed since this candidate was created.
+                // If either version number is different, then the candidate was based on old geometry/connectivity.
+                if (candidate.Version1 != triangleVersions[candidate.Tri1] || candidate.Version2 != triangleVersions[candidate.Tri2])
+                {
+                    staleCandidates++;
+                    continue;
+                }
+
+                // Recompute the edge currently shared by the two triangles.
+                // Even if the triangle versions match, this is a defensive check that they still share one edge.
+                int[] currentSharedEdge = GetCurrentSharedEdge(candidate.Tri1, candidate.Tri2, delaunay.Triangles);
+
+                // If the triangles no longer share exactly two nodes, they are no longer adjacent.
+                // This candidate is invalid and should not be used.
+                if (currentSharedEdge.Length != 2)
+                {
+                    rejectedCandidates++;
+                    continue;
+                }
+
+                // Re-evaluate this swap using the current triangulation.
+                // This protects against using an old priority/quality score.
+                var refreshed = CreateSwapCandidate(candidate.Tri1, candidate.Tri2, currentSharedEdge, uniqueNodes, delaunay.Triangles, fibers, triangleVersions, ASPECT_RATIO_THRESHOLD);
+
+                // If the refreshed candidate is not worthwhile, reject it.
+                if (refreshed == null)
+                {
+                    rejectedCandidates++;
+                    continue;
+                }
+
+                string swapKey = GetSwapKey(refreshed.Tri1, refreshed.Tri2);
+
+                if (recentSwapSet.Contains(swapKey))
+                {
+                    rejectedCandidates++;
+                    continue;
+                }
+
+                if (dOptions != null && dOptions.Debug && totalSwaps % 100 == 0)
+                {
+                    LogMessage(
+                        $"Accepted tri=({refreshed.Tri1},{refreshed.Tri2}), priority={refreshed.Priority:G6}",
+                        dOptions);
+                }
+
+                // Perform the actual edge swap on the two triangles.
+                PerformEdgeSwap(refreshed.Tri1, refreshed.Tri2, refreshed.SharedEdge, delaunay.Triangles, uniqueNodes);
+
+                recentSwapKeys.Enqueue(swapKey);
+                recentSwapSet.Add(swapKey);
+
+                if (recentSwapKeys.Count > RECENT_SWAP_LIMIT)
+                {
+                    string oldKey = recentSwapKeys.Dequeue();
+                    recentSwapSet.Remove(oldKey);
+                }
+
+                // Mark both triangles as changed so any old queued candidates involving them become stale.
+                triangleVersions[refreshed.Tri1]++;
+                triangleVersions[refreshed.Tri2]++;
+
+                // Count only accepted/performed swaps.
+                totalSwaps++;
+
+                // Periodically log the global mesh quality and queue statistics.
+                if (dOptions != null && dOptions.Debug && totalSwaps % 100 == 0)
+                {
+                    var quality = CountTotalQuality(uniqueNodes, delaunay.Triangles, fibers);
+
+                    LogMessage(
+                        $"Swaps={totalSwaps}, queue={queue.Count}, stale={staleCandidates}, rejected={rejectedCandidates}, " +
+                        $"inv={quality.Inversions}, crit={quality.CriticalOverlaps}, adj={quality.AdjustableOverlaps}, " +
+                        $"innerAR={quality.InnerAspectRatio:F3}, outerAR={quality.OuterAspectRatio:F3}",
+                        dOptions);
+                }
+
+                // Only the local neighborhood around the two changed triangles can have changed quality.
+                // Re-evaluate and enqueue new candidates involving those local triangles.
+                RequeueLocalCandidates(refreshed.Tri1, refreshed.Tri2, uniqueNodes, delaunay.Triangles, fibers, triangleVersions, queue, ASPECT_RATIO_THRESHOLD);
+            }
+
+            //If there are still inversions/overlaps and they are part of boundary points, we can try to move the boundary points to fix them.
+            //This is a last resort, and should be done after all other swaps have been exhausted.
+            //Check if there are any inversions or overlaps remaining, and if they are part of boundary points.
+            //TODO: Implement boundary point adjustment to fix remaining inversions/overlaps.
 
             LogMessage($"\n=== Optimization Complete ===", dOptions);
-            LogMessage($"Total iterations: {iterationCount}", dOptions);
             LogMessage($"Total swaps performed: {totalSwaps}", dOptions);
+            LogMessage($"Stale candidates skipped: {staleCandidates}", dOptions);
+            LogMessage($"Rejected candidates skipped: {rejectedCandidates}", dOptions);
 
-            // Log final inversion count (edge triangles may be removed later during projection filtering)
-            int finalInversions = CountTotalInversions(uniqueNodes, delaunay.Triangles, fibers);
-            LogMessage($"Final inversion count: {finalInversions}", dOptions);
 
-            // Close log file
             CloseLogFile();
+        }
+
+        private static string GetSwapKey(int tri1, int tri2)
+        {
+            return $"{Math.Min(tri1, tri2)}_{Math.Max(tri1, tri2)}";
+        }
+
+        private void RequeueLocalCandidates(int tri1Idx, int tri2Idx, List<Node> nodes, int[] triangles, IReadOnlyList<Fiber> fibers, int[] triangleVersions, PriorityQueue<SwapCandidate, double> queue, double aspectThreshold)
+        {
+            var affectedTriangles = FindAffectedTriangles(tri1Idx, tri2Idx, triangles);
+
+            var addedPairs = new HashSet<string>();
+
+            foreach (int triIdx in affectedTriangles)
+            {
+                var neighbors = FindTriangleNeighbors(triIdx, triangles);
+
+                foreach (int neighborIdx in neighbors)
+                {
+                    int a = Math.Min(triIdx, neighborIdx);
+                    int b = Math.Max(triIdx, neighborIdx);
+                    string key = $"{a}_{b}";
+
+                    if (!addedPairs.Add(key))
+                        continue;
+
+                    int[] sharedEdge = GetCurrentSharedEdge(a, b, triangles);
+
+                    if (sharedEdge.Length != 2)
+                        continue;
+
+                    var candidate = CreateSwapCandidate(a, b, sharedEdge, nodes, triangles, fibers, triangleVersions, aspectThreshold);
+                    EnqueueCandidate(queue, candidate);
+                }
+            }
+        }
+
+        private int[] GetCurrentSharedEdge(int tri1Idx, int tri2Idx, int[] triangles)
+        {
+            var tri1 = GetTriangleNodes(tri1Idx, triangles);
+            var tri2 = GetTriangleNodes(tri2Idx, triangles);
+
+            return tri1.Intersect(tri2).ToArray();
+        }
+
+        private HashSet<int> FindAffectedTriangles(int tri1Idx, int tri2Idx, int[] triangles)
+        {
+            var affected = new HashSet<int> { tri1Idx, tri2Idx };
+
+            foreach (int neighbor in FindTriangleNeighbors(tri1Idx, triangles))
+                affected.Add(neighbor);
+
+            foreach (int neighbor in FindTriangleNeighbors(tri2Idx, triangles))
+                affected.Add(neighbor);
+
+            return affected;
+        }
+
+        private List<int> FindTriangleNeighbors(int triIdx, int[] triangles)
+        {
+            var neighbors = new List<int>();
+            var tri = GetTriangleNodes(triIdx, triangles);
+            int triangleCount = triangles.Length / 3;
+
+            for (int otherIdx = 0; otherIdx < triangleCount; otherIdx++)
+            {
+                if (otherIdx == triIdx)
+                    continue;
+
+                var other = GetTriangleNodes(otherIdx, triangles);
+                int sharedCount = tri.Count(node => other.Contains(node));
+
+                if (sharedCount == 2)
+                    neighbors.Add(otherIdx);
+            }
+
+            return neighbors;
         }
 
         /// <summary>
         /// Determines if a swap is worthwhile based on improvement and thresholds.
         /// </summary>
-        private bool IsSwapWorthwhile((int inversions, int overlaps, double innerAspect, double outerAspect) current,
-            (int inversions, int overlaps, double innerAspect, double outerAspect) swapped, double aspectThreshold)
+        private bool IsSwapWorthwhile(TriangleQuality current, TriangleQuality swapped, double aspectThreshold)
         {
             // Always swap if it reduces inversions
-            if (swapped.inversions < current.inversions)
+            if (swapped.Inversions < current.Inversions)
                 return true;
 
             // Don't swap if it increases inversions
-            if (swapped.inversions > current.inversions)
+            if (swapped.Inversions > current.Inversions)
                 return false;
 
             // Always swap if it reduces overlaps (same inversions)
-            if (swapped.overlaps < current.overlaps)
+            if (swapped.CriticalOverlaps < current.CriticalOverlaps)
                 return true;
 
             // Don't swap if it increases overlaps
-            if (swapped.overlaps > current.overlaps)
+            if (swapped.CriticalOverlaps > current.CriticalOverlaps)
+                return false;
+
+            // Always swap if it reduces overlaps (same inversions)
+            if (swapped.AdjustableOverlaps < current.AdjustableOverlaps)
+                return true;
+
+            // Don't swap if it increases overlaps
+            if (swapped.AdjustableOverlaps > current.AdjustableOverlaps)
                 return false;
 
             // Same inversions and overlaps: check if we should bother swapping for aspect ratio alone
             // If already good (no inversions/overlaps), don't risk making it worse
-            if (current.inversions == 0 && current.overlaps == 0)
+            if (current.Inversions == 0 && current.CriticalOverlaps == 0 && current.AdjustableOverlaps == 0)
                 return false;
 
             // Has problems: only swap if inner aspect ratio is bad enough and swap improves it
-            if (current.innerAspect > aspectThreshold && swapped.innerAspect < current.innerAspect)
-                return true;
-
-            return false;
+            return current.InnerAspectRatio > aspectThreshold && swapped.InnerAspectRatio < current.InnerAspectRatio;
         }
 
         /// <summary>
         /// Counts the total number of topological inversions across all triangles.
         /// </summary>
-        private int CountTotalInversions(List<Node> nodes, int[] triangles, IReadOnlyList<Fiber> fibers)
+        private TriangleQuality CountTotalQuality(List<Node> nodes, int[] triangles, IReadOnlyList<Fiber> fibers)
         {
             int totalInversions = 0;
+            int totalCriticalOverlaps = 0;
+            int totalAdjustableOverlaps = 0;
+            double maxInnerAspectRatio = 0.0;
+            double maxOuterAspectRatio = 0.0;
+
             int triangleCount = triangles.Length / 3;
 
             for (int i = 0; i < triangleCount; i++)
             {
                 var tri = GetTriangleNodes(i, triangles);
-                var (inversions, _, _, _) = EvaluateTriangleQuality(tri, nodes, fibers);
-                totalInversions += inversions;
+                var quality = EvaluateTriangleQuality(tri, nodes, fibers);
+
+                totalInversions += quality.Inversions;
+                totalCriticalOverlaps += quality.CriticalOverlaps;
+                totalAdjustableOverlaps += quality.AdjustableOverlaps;
+
+                maxInnerAspectRatio = Math.Max(maxInnerAspectRatio, quality.InnerAspectRatio);
+                maxOuterAspectRatio = Math.Max(maxOuterAspectRatio, quality.OuterAspectRatio);
             }
 
-            return totalInversions;
+            return new TriangleQuality
+            {
+                Inversions = totalInversions,
+                CriticalOverlaps = totalCriticalOverlaps,
+                AdjustableOverlaps = totalAdjustableOverlaps,
+                InnerAspectRatio = maxInnerAspectRatio,
+                OuterAspectRatio = maxOuterAspectRatio
+            };
         }
 
         /// <summary>
@@ -790,43 +877,15 @@ namespace FDEMCore.FxTMesh.Meshing
         /// 3. Inner aspect ratio improvement (weight: 100)
         /// 4. Outer aspect ratio improvement (weight: 10)
         /// </summary>
-        private double CalculateSwapPriority(
-            (int inversions, int overlaps, double innerAspect, double outerAspect) current,
-            (int inversions, int overlaps, double innerAspect, double outerAspect) swapped,
-            List<Node> nodes,
-            IReadOnlyList<Fiber> fibers,
-            int[] quad)
+        private double CalculateSwapPriority(TriangleQuality current, TriangleQuality swapped)
         {
-            double priority = 0;
+            double priority = 0.0;
 
-            // CRITICAL: Inversion reduction (weight: 10000 per inversion)
-            int inversionReduction = current.inversions - swapped.inversions;
-            if (inversionReduction > 0)
-            {
-                priority += 10000 * inversionReduction;
-            }
-
-            // VERY IMPORTANT: Overlap reduction (weight: 1000 per overlap)
-            int overlapReduction = current.overlaps - swapped.overlaps;
-            if (overlapReduction > 0)
-            {
-                priority += 1000 * overlapReduction;
-            }
-
-            // IMPORTANT: Inner aspect ratio improvement (weight: 100)
-            // Lower aspect ratio is better
-            double innerImprovement = current.innerAspect - swapped.innerAspect;
-            if (innerImprovement > 0)
-            {
-                priority += 100 * innerImprovement;
-            }
-
-            // NICE TO HAVE: Outer aspect ratio improvement (weight: 10)
-            double outerImprovement = current.outerAspect - swapped.outerAspect;
-            if (outerImprovement > 0)
-            {
-                priority += 10 * outerImprovement;
-            }
+            priority += 100000.0 * (current.Inversions - swapped.Inversions);
+            priority += 10000.0 * (current.CriticalOverlaps - swapped.CriticalOverlaps);
+            priority += 1000.0 * (current.AdjustableOverlaps - swapped.AdjustableOverlaps);
+            priority += 100.0 * (current.InnerAspectRatio - swapped.InnerAspectRatio);
+            priority += 10.0 * (current.OuterAspectRatio - swapped.OuterAspectRatio);
 
             return priority;
         }
@@ -835,8 +894,7 @@ namespace FDEMCore.FxTMesh.Meshing
         /// Evaluates the quality of a quadrilateral formed by two adjacent triangles.
         /// Returns (inversionCount, overlapCount, maxInnerAspectRatio, maxOuterAspectRatio) and outputs the 4-node quadrilateral.
         /// </summary>
-        private (int inversions, int overlaps, double innerAspect, double outerAspect) EvaluateQuadrilateralQuality(
-            int tri1Idx, int tri2Idx, List<Node> nodes, int[] triangles, IReadOnlyList<Fiber> fibers,
+        private TriangleQuality EvaluateQuadrilateralQuality(int tri1Idx, int tri2Idx, List<Node> nodes, int[] triangles, IReadOnlyList<Fiber> fibers,
             out int[] quad, int[] sharedEdge)
         {
             var tri1 = GetTriangleNodes(tri1Idx, triangles);
@@ -846,40 +904,52 @@ namespace FDEMCore.FxTMesh.Meshing
             var allVertices = tri1.Concat(tri2).Distinct().ToArray();
             quad = allVertices;
 
-            if (quad.Length != 4)
-            {
-                // Degenerate case - shouldn't happen
-                return (int.MaxValue, int.MaxValue, double.MaxValue, double.MaxValue);
-            }
-
             // Evaluate both triangles
-            int totalInversions = 0;
-            int totalOverlaps = 0;
-            double maxInnerAspect = 0;
-            double maxOuterAspect = 0;
+            var q1 = EvaluateTriangleQuality(tri1, nodes, fibers);
+            var q2 = EvaluateTriangleQuality(tri2, nodes, fibers);
 
-            foreach (var tri in new[] { tri1, tri2 })
+            return CombineTriangleQuality(q1, q2);
+        }
+
+        private SwapCandidate? CreateSwapCandidate(int tri1Idx, int tri2Idx, int[] sharedEdge, List<Node> nodes, int[] triangles, IReadOnlyList<Fiber> fibers, int[] triangleVersions, double aspectThreshold)
+        {
+            var currentQuality = EvaluateQuadrilateralQuality(tri1Idx, tri2Idx, nodes, triangles, fibers, out var quad, sharedEdge);
+            var swappedQuality = EvaluateSwappedQuadrilateralQuality(tri1Idx, tri2Idx, quad, sharedEdge, nodes, triangles, fibers);
+
+            if (!IsSwapWorthwhile(currentQuality, swappedQuality, aspectThreshold))
+                return null;
+
+            double priority = CalculateSwapPriority(currentQuality, swappedQuality);
+
+            if (priority <= 1e-12)
+                return null;
+
+            return new SwapCandidate
             {
-                var (inversions, overlaps, innerAspect, outerAspect) = EvaluateTriangleQuality(tri, nodes, fibers);
-                totalInversions += inversions;
-                totalOverlaps += overlaps;
-                maxInnerAspect = Math.Max(maxInnerAspect, innerAspect);
-                maxOuterAspect = Math.Max(maxOuterAspect, outerAspect);
-            }
+                Tri1 = tri1Idx,
+                Tri2 = tri2Idx,
+                SharedEdge = sharedEdge,
+                Priority = priority,
+                Version1 = triangleVersions[tri1Idx],
+                Version2 = triangleVersions[tri2Idx]
+            };
+        }
 
-            return (totalInversions, totalOverlaps, maxInnerAspect, maxOuterAspect);
+        private void EnqueueCandidate(PriorityQueue<SwapCandidate, double> queue, SwapCandidate? candidate)
+        {
+            if (candidate == null)
+                return;
+
+            queue.Enqueue(candidate, -candidate.Priority);
         }
 
         /// <summary>
         /// Evaluates what the quality would be if we swapped the diagonal of a quadrilateral.
         /// Uses the EXACT same geometric orientation logic as PerformEdgeSwap to ensure consistency.
         /// </summary>
-        private (int inversions, int overlaps, double innerAspect, double outerAspect) EvaluateSwappedQuadrilateralQuality(
+        private TriangleQuality EvaluateSwappedQuadrilateralQuality(
             int tri1Idx, int tri2Idx, int[] quad, int[] sharedEdge, List<Node> nodes, int[] triangles, IReadOnlyList<Fiber> fibers)
         {
-            if (quad.Length != 4)
-                return (int.MaxValue, int.MaxValue, double.MaxValue, double.MaxValue);
-
             // Get the current triangles
             var tri1 = GetTriangleNodes(tri1Idx, triangles);
             var tri2 = GetTriangleNodes(tri2Idx, triangles);
@@ -936,13 +1006,24 @@ namespace FDEMCore.FxTMesh.Meshing
         /// Evaluates the combined quality of two triangles.
         /// Returns worst-case metrics across both triangles.
         /// </summary>
-        private (int inversions, int overlaps, double innerAspect, double outerAspect) EvaluateTwoTrianglesQuality(
-            int[] tri1, int[] tri2, List<Node> nodes, IReadOnlyList<Fiber> fibers)
+        private TriangleQuality EvaluateTwoTrianglesQuality(int[] tri1, int[] tri2, List<Node> nodes, IReadOnlyList<Fiber> fibers)
         {
-            var (inv1, overlap1, inner1, outer1) = EvaluateTriangleQuality(tri1, nodes, fibers);
-            var (inv2, overlap2, inner2, outer2) = EvaluateTriangleQuality(tri2, nodes, fibers);
+            var q1 = EvaluateTriangleQuality(tri1, nodes, fibers);
+            var q2 = EvaluateTriangleQuality(tri2, nodes, fibers);
 
-            return (inv1 + inv2, overlap1 + overlap2, Math.Max(inner1, inner2), Math.Max(outer1, outer2));
+            return CombineTriangleQuality(q1, q2);
+        }
+
+        private TriangleQuality CombineTriangleQuality(TriangleQuality q1, TriangleQuality q2)
+        {
+            return new TriangleQuality
+            {
+                Inversions = q1.Inversions + q2.Inversions,
+                CriticalOverlaps = q1.CriticalOverlaps + q2.CriticalOverlaps,
+                AdjustableOverlaps = q1.AdjustableOverlaps + q2.AdjustableOverlaps,
+                InnerAspectRatio = Math.Max(q1.InnerAspectRatio, q2.InnerAspectRatio),
+                OuterAspectRatio = Math.Max(q1.OuterAspectRatio, q2.OuterAspectRatio)
+            };
         }
 
         /// <summary>
@@ -955,91 +1036,22 @@ namespace FDEMCore.FxTMesh.Meshing
         /// 4. Outer triangle aspect ratio (minimize for good triangle shape)
         /// Goal: minimize in order of priority.
         /// </summary>
-        private (int topologicalInversions, int elementOverlaps, double innerAspectRatio, double outerAspectRatio) EvaluateTriangleQuality(int[] triangleNodeIndices,
-            List<Node> nodes, IReadOnlyList<Fiber> fibers)
+        private TriangleQuality EvaluateTriangleQuality(int[] triangleNodeIndices, List<Node> nodes, IReadOnlyList<Fiber> fibers)
         {
-            // Get the three nodes
-            var nodeA = nodes[triangleNodeIndices[0]];
-            var nodeB = nodes[triangleNodeIndices[1]];
-            var nodeC = nodes[triangleNodeIndices[2]];
+            var triangleNodes = new[]{ nodes[triangleNodeIndices[0]],nodes[triangleNodeIndices[1]],nodes[triangleNodeIndices[2]]};
 
-            // Calculate interior points for quality assessment
-            // For fiber nodes: use surface midpoint; for boundary nodes: use the boundary point itself
-            var interiorPoints = new Point2D[3];
-            var triangleNodes = new[] { nodeA, nodeB, nodeC };
-
-            for (int i = 0; i < 3; i++)
-            {
-                var currentNode = triangleNodes[i];
-                var otherIndices = GetOtherIndices(i);
-                var otherNode1 = triangleNodes[otherIndices[0]];
-                var otherNode2 = triangleNodes[otherIndices[1]];
-
-                // If this is a fiber node, calculate surface point; otherwise use boundary point directly
-                if (currentNode.FiberId.HasValue)
-                {
-                    interiorPoints[i] = CalculateFiberSurfacePoint(
-                        currentNode.P, fibers[currentNode.FiberId.Value].Radius,
-                        otherNode1.P, otherNode2.P);
-                }
-                else
-                {
-                    // Boundary node: use its position directly
-                    interiorPoints[i] = currentNode.P;
-                }
-            }
-
-            // Calculate quality metrics
-            int topologicalInversionCount = 0;
-            int elementOverlapCount = 0;
-
-            for (int i = 0; i < 3; i++)
-            {
-                // Only check fiber nodes
-                if (triangleNodes[i].FiberId.HasValue)
-                {
-                    var fiberCenter = triangleNodes[i].P;
-                    var otherIndices = GetOtherIndices(i);
-                    var interiorPoint1 = interiorPoints[otherIndices[0]];
-                    var interiorPoint2 = interiorPoints[otherIndices[1]];
-                    var nodePos1 = triangleNodes[otherIndices[0]].P;
-                    var nodePos2 = triangleNodes[otherIndices[1]].P;
-
-                    // Priority 1: Topological inversion (fiber center vs node positions)
-                    // This is a triangle-level problem where fiber center crosses the edge
-                    bool topologicalInversion = !SameSide(fiberCenter, interiorPoints[i], nodePos1, nodePos2);
-                    if (topologicalInversion)
-                        topologicalInversionCount++;
-
-                    // Priority 2: Element-level overlap (fiber surface vs surface points)
-                    // This determines if the interior element overlaps the fiber
-                    bool elementOverlap = IsInnerTriangleInverted(fiberCenter, interiorPoints[i], interiorPoint1, interiorPoint2);
-                    if (elementOverlap)
-                        elementOverlapCount++;
-                }
-            }
-
-            // Priority 3: Inner triangle aspect ratio (lower is better)
-            double innerAspectRatio = CalculateAspectRatio(interiorPoints[0], interiorPoints[1], interiorPoints[2]);
-
-            // Priority 4: Outer triangle aspect ratio (lower is better)
-            var outerNodePos0 = triangleNodes[0].P;
-            var outerNodePos1 = triangleNodes[1].P;
-            var outerNodePos2 = triangleNodes[2].P;
-            double outerAspectRatio = CalculateAspectRatio(outerNodePos0, outerNodePos1, outerNodePos2);
-
-            return (topologicalInversionCount, elementOverlapCount, innerAspectRatio, outerAspectRatio);
+            return new TriangleQuality(triangleNodes, fibers);
         }
 
         /// <summary>
-        /// Checks if a fiber center crosses the line connecting two surface points (inversion check).
-        /// Uses signed distance to determine which side of the line the fiber is on.
+        /// Checks if a fiber center is on the same side of a triangle edge as the fiber's surface point.
         /// </summary>
-        private static bool IsInnerTriangleInverted(Point2D fiberCenter, Point2D surfacePointOfFiber, Point2D surfacePoint1, Point2D surfacePoint2)
+        private static bool DoesFiberOverlapTriangleSide(Point2D fiberCenter, Point2D surfacePointOfFiber, Point2D triangleCorner1, Point2D triangleCorner2)
         {
             // checks that the fiber center is on the same side of the line defined by surfacePoint1 and surfacePoint2 as the surface point of the fiber itself
-            return !SameSide(fiberCenter, surfacePointOfFiber, surfacePoint1, surfacePoint2);
+            return !SameSide(fiberCenter, surfacePointOfFiber, triangleCorner1, triangleCorner2);
         }
+
         private static double Side(Point2D p2, Point2D p3, Point2D q)
         {
             return (p3.X - p2.X) * (q.Y - p2.Y)
@@ -1082,24 +1094,21 @@ namespace FDEMCore.FxTMesh.Meshing
         /// 3. Lower inner triangle aspect ratio (QUALITY)
         /// 4. Lower outer triangle aspect ratio (SHAPE)
         /// </summary>
-        private bool IsConfigurationBetter(
-            (int inversions, int overlaps, double innerAspect, double outerAspect) config1,
-            (int inversions, int overlaps, double innerAspect, double outerAspect) config2)
+        private bool IsConfigurationBetter(TriangleQuality config1, TriangleQuality config2)
         {
-            // Priority 1: Topological inversions are critical
-            if (config1.inversions != config2.inversions)
-                return config1.inversions < config2.inversions;
+            if (config1.Inversions != config2.Inversions)
+                return config1.Inversions < config2.Inversions;
 
-            // Priority 2: Element overlaps are important
-            if (config1.overlaps != config2.overlaps)
-                return config1.overlaps < config2.overlaps;
+            if (config1.CriticalOverlaps != config2.CriticalOverlaps)
+                return config1.CriticalOverlaps < config2.CriticalOverlaps;
 
-            // Priority 3: Inner triangle aspect ratio (lower is better)
-            if (Math.Abs(config1.innerAspect - config2.innerAspect) > 0.01)
-                return config1.innerAspect < config2.innerAspect;
+            if (config1.AdjustableOverlaps != config2.AdjustableOverlaps)
+                return config1.AdjustableOverlaps < config2.AdjustableOverlaps;
 
-            // Priority 4: Outer triangle aspect ratio (lower is better)
-            return config1.outerAspect < config2.outerAspect;
+            if (Math.Abs(config1.InnerAspectRatio - config2.InnerAspectRatio) > 0.01)
+                return config1.InnerAspectRatio < config2.InnerAspectRatio;
+
+            return config1.OuterAspectRatio < config2.OuterAspectRatio;
         }
 
         #endregion

@@ -132,6 +132,7 @@ namespace FxTMeshGenerator.IO
             {
                 ElementPhase.Fiber => "fiber",
                 ElementPhase.Matrix => "matrix",
+                ElementPhase.Composite => "composite",
                 _ => throw new NotSupportedException($"Unsupported element phase: {element.Phase}")
             };
         }

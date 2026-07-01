@@ -5,6 +5,7 @@ using System.Runtime.Serialization.Formatters.Binary;
 using System.Threading;
 using System.Globalization; //to set the language
 using RandomMath;
+using System.Text.Json;
 
 
 namespace FDEMCore
@@ -185,32 +186,25 @@ namespace FDEMCore
 			RunSingleRunWrapper(1);
 		}
 
-			// TODO: This DeepClone method uses BinaryFormatter which is obsolete in .NET 10+
-			// This should be migrated to use System.Text.Json or another modern serialization approach
-			// For now, we're suppressing the warning to maintain compatibility during the initial .NET 10 upgrade
-			// See: https://aka.ms/binaryformatter for migration guidance
-		#pragma warning disable SYSLIB0011 // BinaryFormatter is obsolete
-			public static object DeepClone(object obj) 
-			{
-				object objResult = null;
-				using (MemoryStream  ms = new MemoryStream())
-				{
-					BinaryFormatter  bf =   new BinaryFormatter();
-					bf.Serialize(ms, obj);
+        public static T DeepClone<T>(T obj)
+        {
+            if (obj == null)
+                return default;
 
-					ms.Position = 0;
-					objResult = bf.Deserialize(ms);
-				}
-				return objResult;
-			}
-		#pragma warning restore SYSLIB0011
+            var options = new JsonSerializerOptions
+            {
+                IncludeFields = true,
+                PropertyNameCaseInsensitive = true
+            };
 
+            string json = JsonSerializer.Serialize(obj, options);
+            return JsonSerializer.Deserialize<T>(json, options);
+        }
+        #endregion
 
-		#endregion
+        #region private methods
 
-		#region private methods
-
-		private void RunSingleRunWrapper(int nRuns){
+        private void RunSingleRunWrapper(int nRuns){
 
 			if (isMultiThreaded) {
 				RunSingleRun (nRuns, isMultiThreaded);
@@ -239,9 +233,9 @@ namespace FDEMCore
 		private void RunSingleRun(int nRuns, bool bIsMultiThreaded)
 		{
 			for (int i = 0; i < nRuns; i++) {
-				Packing tempPack = (Packing)DeepClone (pack);
-				Analysis tempAnalysis = (Analysis)DeepClone (analysis);
-				OutputParameters tempoutParams = (OutputParameters)DeepClone(outParams);
+				Packing tempPack = DeepClone(pack);
+				Analysis tempAnalysis = DeepClone(analysis);
+				OutputParameters tempoutParams = DeepClone(outParams);
 
 				//This stops the addition of _1 if there are no repetitions.
 				RunSingleThread myThread = noRepitions ? new RunSingleThread(tempPack, tempAnalysis, tempoutParams) : new RunSingleThread (i, tempPack, tempAnalysis, tempoutParams);

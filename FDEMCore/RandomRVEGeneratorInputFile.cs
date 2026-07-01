@@ -3,6 +3,7 @@ using FDEMCore.FxTMesh;
 using FDEMCore.FxTMesh.Meshing;
 using FxTMeshGenerator.IO;
 using System;
+using System.Diagnostics;
 using System.IO;
 
 
@@ -93,9 +94,22 @@ namespace FDEMCore
 
 				if(createFxTMesh)
                 {
-					FEMesh myMesh = FxTMesh.FxTMeshGenerator.GenerateFromPack(Packing, outParams.DirName, outParams.FileName + outParams.FileIndex, true, null, elConfig);
+                    DebugOptions debugOptions = new DebugOptions
+                    {
+                        Debug = true,
+                        Directory = outParams.DirName,
+                        FileName = outParams.FileName + outParams.FileIndex
+                    };
+
+                    FEMesh myMesh = FxTMesh.FxTMeshGenerator.GenerateFromPack(Packing, debugOptions, null, elConfig);
+
+                    if (isCrossPly)
+                    {
+                        myMesh = CrossPlyMeshAugmenter.AddZCrossPly(myMesh, Packing.Boundary, crossPlyThickness, elConfig, debugOptions);
+                    }
+
                     FxTInputDeckWriter.WriteMeshDeck(outputDirectory: Path.Combine(dirName, sFileName + "_FxT"),
-						mesh: myMesh, boundary: Packing.Boundary);
+                        mesh: myMesh, boundary: Packing.Boundary);
                 }
             }
 		}

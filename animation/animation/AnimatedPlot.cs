@@ -301,7 +301,7 @@ namespace Animation
 							gif.AddFrame(bmp, delay: -1, quality: GifQuality.Bit8);
 							bmp.Dispose();
 						}
-					}
+					}/**/
 
 					
 				} catch (Exception ex) {
