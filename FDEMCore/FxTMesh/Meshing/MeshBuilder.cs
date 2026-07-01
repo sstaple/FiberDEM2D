@@ -647,9 +647,20 @@ namespace FDEMCore.FxTMesh.Meshing
                     var node2 = nodes[(edgeIdx + 1) % 3];
 
                     // Look for edges with two PROJECTED fibers (same projection direction)
-                    if (node1.Type == NodeType.ProjectedFiber && node2.Type == NodeType.ProjectedFiber &&
+                    bool compatible = (node1.Type == NodeType.ProjectedFiber && node2.Type == NodeType.ProjectedFiber 
+                        && node1.Offset != (0, 0) && node2.Offset != (0, 0)
+                        && node1.FiberId.HasValue && node2.FiberId.HasValue)
+                        &&
+                        (node1.Offset == node2.Offset ||
+                        (node1.Offset.ox == node2.Offset.ox && node1.Offset.ox != 0) ||
+                        (node1.Offset.oy == node2.Offset.oy && node1.Offset.oy != 0)
+                        );
+
+                    /*if (node1.Type == NodeType.ProjectedFiber && node2.Type == NodeType.ProjectedFiber &&
                         node1.Offset == node2.Offset && node1.Offset != (0, 0) &&
                         node1.FiberId.HasValue && node2.FiberId.HasValue)
+                    */
+                    if(compatible)
                     {
                         int projFiber1Id = node1.FiberId.Value;
                         int projFiber2Id = node2.FiberId.Value;
