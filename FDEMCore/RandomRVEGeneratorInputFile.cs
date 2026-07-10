@@ -108,7 +108,7 @@ namespace FDEMCore
                         myMesh = CrossPlyMeshAugmenter.AddZCrossPly(myMesh, Packing.Boundary, crossPlyThickness, elConfig, debugOptions);
                     }
 
-                    FxTInputDeckWriter.WriteMeshDeck(outputDirectory: Path.Combine(dirName, sFileName + "_FxT"),
+                    FxTInputDeckWriter.WriteMeshDeck(outputDirectory: Path.Combine(dirName, sFileName + outParams.FileIndex + "_FxT"),
                         mesh: myMesh, boundary: Packing.Boundary);
                 }
             }

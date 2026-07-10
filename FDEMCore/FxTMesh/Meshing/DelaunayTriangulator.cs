@@ -130,7 +130,7 @@ namespace FDEMCore.FxTMesh.Meshing
                             ox * leftProj[2] + oy * bottomProj[2]);
                         var b = edgeNodes[i];
                         var p = new Point2D(b.P.X + projectionVector.X, b.P.Y + projectionVector.Y);
-                        nodes.Add(new Node(p, null, NodeType.ProjectedBoundary, offset: (ox, oy)));
+                        nodes.Add(new Node(p, NodeType.ProjectedBoundary, offset: (ox, oy)));
                     }
                 }
 
@@ -217,7 +217,7 @@ namespace FDEMCore.FxTMesh.Meshing
                 var cornerPts = boundary.Find2DCornersAtCurrentStrainDouble();
                 for (int i = 0; i < cornerPts.Length; i++)
                 {
-                    cornerNodes.Add(new Node(new Point2D(cornerPts[i][0], cornerPts[i][1]), null,
+                    cornerNodes.Add(new Node(new Point2D(cornerPts[i][0], cornerPts[i][1]),
                         NodeType.BoundaryCorner, cornerOffsets[i]));
                 }
             }
@@ -230,7 +230,7 @@ namespace FDEMCore.FxTMesh.Meshing
                     var pts = boundary.GetBoundaryPoints(i, spacing, includeCorners: false);
                     foreach (var p in pts)
                     {
-                        edgeNodes.Add(new Node(new Point2D(p[1], p[2]), null, NodeType.BoundaryPoint, (0, 0)));
+                        edgeNodes.Add(new Node(new Point2D(p[1], p[2]), NodeType.BoundaryPoint, (0, 0)));
                     }
                 }
             }

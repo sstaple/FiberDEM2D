@@ -37,10 +37,10 @@ namespace FDEMCore.FxTMesh.Meshing
             {
                 var currentNode = triangleNodes[i];
 
-                if (!currentNode.FiberId.HasValue)
+                if (currentNode.FiberId == -1)
                     continue;
 
-                var fiber = fibers[currentNode.FiberId.Value];
+                var fiber = fibers[currentNode.FiberId];
                 var other = GetOtherIndices(i);
 
                 var fiberCenter = currentNode.P;
@@ -82,13 +82,13 @@ namespace FDEMCore.FxTMesh.Meshing
             {
                 var currentNode = triangleNodes[i];
 
-                if (!currentNode.FiberId.HasValue)
+                if (currentNode.FiberId==-1)
                 {
                     interiorPoints[i] = currentNode.P;
                     continue;
                 }
 
-                var fiber = fibers[currentNode.FiberId.Value];
+                var fiber = fibers[currentNode.FiberId];
                 var other = GetOtherIndices(i);
 
                 interiorPoints[i] = CalculateFiberSurfacePoint(currentNode.P, fiber.Radius, triangleNodes[other[0]].P, triangleNodes[other[1]].P);
@@ -107,10 +107,10 @@ namespace FDEMCore.FxTMesh.Meshing
 
                 var currentNode = triangleNodes[i];
 
-                if (!currentNode.FiberId.HasValue)
+                if (currentNode.FiberId==-1)
                     continue;
 
-                var fiber = fibers[currentNode.FiberId.Value];
+                var fiber = fibers[currentNode.FiberId];
                 var other = GetOtherIndices(i);
 
                 double distanceToOuterEdge = CalculatePointToLineDistance(currentNode.P, triangleNodes[other[0]].P, triangleNodes[other[1]].P);

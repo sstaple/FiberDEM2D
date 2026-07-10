@@ -33,7 +33,9 @@ namespace FDEMCore.FxTMesh.Meshing
             if (bottom.Count < 2 || top.Count < 2)
                 throw new InvalidOperationException("Could not find enough top/bottom boundary nodes to build CrossPly layers.");
 
-            double spacing = bottom[1].Point.X - bottom[0].Point.X;
+            int nNodesPerTriangleSide = config.FiberTriangleNodes / 3;
+
+            double spacing = (bottom[1].Point.X - bottom[0].Point.X) * nNodesPerTriangleSide;
             if (spacing <= NodeTolerance)
                 throw new InvalidOperationException("Could not determine valid boundary point spacing for CrossPly layers.");
 
@@ -69,23 +71,29 @@ namespace FDEMCore.FxTMesh.Meshing
                 .ToList();
         }
 
-        private static void AddLayer(List<(int Index, Point2D Point)> edge, double dz, double outerZ, List<Point2D> nodes, List<Element> elements, 
-            ref int nextElementId, ElementConfig config)
+        private static void AddLayer(List<(int Index, Point2D Point)> edge, double dz, double outerZ, List<Point2D> nodes, List<Element> elements, ref int nextElementId, ElementConfig config)
         {
-            int nCols = edge.Count;
-            int nRows = Math.Max(1, (int)Math.Round(Math.Abs((outerZ - edge[0].Point.Y) / dz)));
+            //WARNING: This assumes that all of the triangular nodes are evenly spaced along the edge. If this is not the case, the resulting mesh may be invalid.
+            int step = config.MatrixTriangleNodes / 3;
+            var primaryEdge = edge.Where((e, i) => i % step == 0).ToList();
+
+            if (primaryEdge[^1].Index != edge[^1].Index)
+                primaryEdge.Add(edge[^1]);
+
+            int nCols = primaryEdge.Count;
+            int nRows = Math.Max(1, (int)Math.Round(Math.Abs((outerZ - primaryEdge[0].Point.Y) / dz)));
 
             var rowNodeIds = new List<int[]>();
-            rowNodeIds.Add(edge.Select(e => e.Index).ToArray());
+            rowNodeIds.Add(primaryEdge.Select(e => e.Index).ToArray());
 
             for (int r = 1; r <= nRows; r++)
             {
-                double z = edge[0].Point.Y + r * dz;
+                double z = primaryEdge[0].Point.Y + r * dz;
                 var row = new int[nCols];
 
                 for (int c = 0; c < nCols; c++)
                 {
-                    var p = new Point2D(edge[c].Point.X, z);
+                    var p = new Point2D(primaryEdge[c].Point.X, z);
                     row[c] = AddNode(nodes, p);
                 }
 
@@ -102,10 +110,10 @@ namespace FDEMCore.FxTMesh.Meshing
                     Point2D p01 = nodes[rowNodeIds[r + 1][c]];
 
                     var quadNodes = BuildQuadNodes(p00, p10, p11, p01, config);
+
                     for (int i = 0; i < quadNodes.Length; i++)
-                    {
                         AddNode(nodes, quadNodes[i]);
-                    }
+
                     elements.Add(new Element(nextElementId++, ElementPhase.Composite, config.MatrixQuadFxTType, quadNodes));
                 }
             }

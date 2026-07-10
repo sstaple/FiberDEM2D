@@ -89,7 +89,7 @@ namespace FDEMCore.FxTMesh.IO
             sw.WriteLine("LOOKUP_TABLE default");
             for (int i = 0; i < mesh.Nodes.Count; i++)
             {
-                int fiberId = mesh.Nodes[i].FiberId ?? -1; // -1 for boundary nodes
+                int fiberId = mesh.Nodes[i].FiberId; // -1 for boundary nodes
                 sw.WriteLine(fiberId.ToString(CultureInfo.InvariantCulture));
             }
         }

@@ -5,7 +5,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.IO;
-using System.Net.Http.Json;
 
 
 namespace FDEMCore.FxTMesh.Meshing
@@ -125,7 +124,7 @@ namespace FDEMCore.FxTMesh.Meshing
                     var node = triangleNodes[i];
                     if (node.Type == NodeType.FiberCenter || node.Type == NodeType.ProjectedFiber)
                     {
-                        writer.WriteLine($"  Node {i}: Fiber ID {node.FiberId.Value}, " +
+                        writer.WriteLine($"  Node {i}: Fiber ID {node.FiberId}, " +
                             $"Position ({node.P.X:F6}, {node.P.Y:F6})");
                     }
                     else
@@ -143,7 +142,7 @@ namespace FDEMCore.FxTMesh.Meshing
                     if (overlapInfo[i].HasCriticalOverlap)
                     {
                         var node = triangleNodes[i];
-                        var fiber = fibers[node.FiberId.Value];
+                        var fiber = fibers[node.FiberId];
                         var otherIndices = GetOtherIndices(i);
                         var otherNode1 = triangleNodes[otherIndices[0]];
                         var otherNode2 = triangleNodes[otherIndices[1]];
@@ -153,7 +152,7 @@ namespace FDEMCore.FxTMesh.Meshing
                             otherNode1.P,
                             otherNode2.P);
 
-                        writer.WriteLine($"  Fiber {node.FiberId.Value}:");
+                        writer.WriteLine($"  Fiber {node.FiberId}:");
                         writer.WriteLine($"    Radius: {fiber.Radius:F6}");
                         writer.WriteLine($"    Distance to opposite edge: {minDist:F6}");
                         writer.WriteLine($"    Critical threshold: {fiber.Radius + fiber.Radius / 20.0:F6}");
@@ -333,12 +332,12 @@ namespace FDEMCore.FxTMesh.Meshing
         private bool NodesMatch(Node node1, Node node2)
         {
             // For fiber nodes: match by FiberId and Offset
-            if (node1.FiberId.HasValue && node2.FiberId.HasValue)
+            if (node1.FiberId != -1 && node2.FiberId != -1)
             {
                 return node1.FiberId == node2.FiberId && node1.Offset == node2.Offset;
             }
             // For boundary nodes: match by position
-            else if (!node1.FiberId.HasValue && !node2.FiberId.HasValue)
+            else if ((node1.FiberId == -1) && (node2.FiberId == -1))
             {
                 return Math.Abs(node1.P.X - node2.P.X) < NodeTolerance &&
                        Math.Abs(node1.P.Y - node2.P.Y) < NodeTolerance &&
@@ -359,12 +358,12 @@ namespace FDEMCore.FxTMesh.Meshing
         private string GetEdgeKey(Node node1, Node node2)
         {
             // Create a unique key that handles both fiber and boundary nodes
-            string key1 = node1.FiberId.HasValue
-                ? $"F{node1.FiberId.Value}_{node1.Offset.ox}_{node1.Offset.oy}"
+            string key1 = node1.FiberId!=-1
+                ? $"F{node1.FiberId}_{node1.Offset.ox}_{node1.Offset.oy}"
                 : $"B{node1.P.X:F10}_{node1.P.Y:F10}_{node1.Offset.ox}_{node1.Offset.oy}";
 
-            string key2 = node2.FiberId.HasValue
-                ? $"F{node2.FiberId.Value}_{node2.Offset.ox}_{node2.Offset.oy}"
+            string key2 = node2.FiberId != -1
+                ? $"F{node2.FiberId}_{node2.Offset.ox}_{node2.Offset.oy}"
                 : $"B{node2.P.X:F10}_{node2.P.Y:F10}_{node2.Offset.ox}_{node2.Offset.oy}";
 
             // Order-independent key
@@ -383,7 +382,7 @@ namespace FDEMCore.FxTMesh.Meshing
             {
                 if (nodes[i].Type == NodeType.FiberCenter || nodes[i].Type == NodeType.ProjectedFiber)
                 {
-                    var fiber = fibers[nodes[i].FiberId.Value];
+                    var fiber = fibers[nodes[i].FiberId];
                     var otherIndices = GetOtherIndices(i);
 
                     elementNodes[i] = CalculateFiberSurfacePoint(
@@ -421,7 +420,7 @@ namespace FDEMCore.FxTMesh.Meshing
         private bool IsProjectedFiberNode(Node node)
         {
             return node.Type == NodeType.ProjectedFiber
-                && node.FiberId.HasValue
+                && node.FiberId != -1
                 && node.Offset != (0, 0);
         }
 
@@ -500,7 +499,7 @@ namespace FDEMCore.FxTMesh.Meshing
                     // Calculate surface point for fiber centers, use point as-is for boundary nodes
                     if (currentNode.Type == NodeType.FiberCenter || currentNode.Type == NodeType.ProjectedFiber)
                     {
-                        var fiber = fibers[currentNode.FiberId.Value];
+                        var fiber = fibers[currentNode.FiberId];
                         Point2D fiberCenter = currentNode.P;
 
                         elementNodes[j] = CalculateFiberSurfacePoint(
@@ -609,28 +608,7 @@ namespace FDEMCore.FxTMesh.Meshing
             var pairs = new List<PeriodicFiberPair>();
             var processedPairs = new HashSet<(int, int, int, int)>(); // To avoid duplicates
 
-            // First, identify which fibers have projections (are on boundaries)
-            var boundaryFibers = new HashSet<int>();
-            for (int i = 0; i < fibers.Count; i++)
-            {
-                if (fibers[i].HasProjectedFibers)
-                {
-                    boundaryFibers.Add(i);
-                }
-            }
-
-            Console.WriteLine($"Debug: Total fibers = {fibers.Count}, Boundary fibers with projections = {boundaryFibers.Count}");
-            Console.WriteLine($"Debug: Searching through {triangulation.Triangles.Count} triangles for edges with PROJECTED fibers");
-
-            if (boundaryFibers.Count == 0)
-            {
-                Console.WriteLine("Debug: No fibers have HasProjectedFibers set to true. Checking alternative detection...");
-
-                // Fallback: use position-based detection
-                return FindPeriodicFiberPairsByPosition(triangulation, fibers, boundary);
-            }
-
-            // For each triangle, check if it contains an edge with two boundary fibers
+            // For each triangle, check if it contains an edge with two projected fibers
             for (int triIdx = 0; triIdx < triangulation.Triangles.Count; triIdx++)
             {
                 var tri = triangulation.Triangles[triIdx];
@@ -649,37 +627,24 @@ namespace FDEMCore.FxTMesh.Meshing
                     // Look for edges with two PROJECTED fiberss and  (same projection direction)
                     bool bothProjected = node1.Type == NodeType.ProjectedFiber && node2.Type == NodeType.ProjectedFiber;
                     bool isBoundaryEdge = false;
-                    if(bothProjected)
+                    if (bothProjected)
                     {
                         //check that it is an outside edge only if both are projected
                         int trianglesWithFibers = CountTrianglesSharingProjectedEdge(triangulation, node1, node2);
-                        isBoundaryEdge = trianglesWithFibers == 1 ? true: false;
+                        isBoundaryEdge = trianglesWithFibers == 1 ? true : false;
                     }
-                        
 
-                    /*if (node1.Type == NodeType.ProjectedFiber && node2.Type == NodeType.ProjectedFiber &&
-                        node1.Offset == node2.Offset && node1.Offset != (0, 0) &&
-                        node1.FiberId.HasValue && node2.FiberId.HasValue)
-                    */
-                    if(bothProjected && isBoundaryEdge)
+                    if (bothProjected && isBoundaryEdge)
                     {
-                        int projFiber1Id = node1.FiberId.Value;
-                        int projFiber2Id = node2.FiberId.Value;
-
-                        bool isShared = TryGetSharedProjectionDirection(node1.Offset, node2.Offset, out var projectionDirection);
-
-                        Console.WriteLine($"Debug: Found edge with two projected fibers {projFiber1Id},{projFiber2Id} in direction {projectionDirection}");
-
-                        // Find the original triangle containing both original fibers  
-                        int originalTriIdx = FindTriangleWithTwoOriginalFibers(triangulation, projFiber1Id, projFiber2Id);
-
-                        if (originalTriIdx == -1)
+                        if (!TryFindPeriodicPartnerForProjectedEdge(triangulation, node1, node2, boundary,
+                            out int originalTriIdx, out var projectionDirection))
                         {
-                            Console.WriteLine($"Debug: Could not find original triangle for projected fibers {projFiber1Id},{projFiber2Id}");
                             continue;
                         }
 
-                        // Avoid duplicates
+                        int projFiber1Id = node1.FiberId;
+                        int projFiber2Id = node2.FiberId;
+
                         var pairKey = (
                             Math.Min(projFiber1Id, projFiber2Id),
                             Math.Max(projFiber1Id, projFiber2Id),
@@ -692,14 +657,10 @@ namespace FDEMCore.FxTMesh.Meshing
 
                         processedPairs.Add(pairKey);
 
-                        Console.WriteLine($"Debug: Adding pair for projected fibers {projFiber1Id},{projFiber2Id}");
-
                         pairs.Add(new PeriodicFiberPair
                         {
-                            OriginalFiber1Id = projFiber1Id,
-                            OriginalFiber2Id = projFiber2Id,
-                            ProjectedFiber1Id = projFiber1Id,
-                            ProjectedFiber2Id = projFiber2Id,
+                            Fiber1Id = projFiber1Id,
+                            Fiber2Id = projFiber2Id,
                             OriginalTriangleIndex = originalTriIdx,
                             ProjectedTriangleIndex = triIdx,
                             ProjectionDirection = projectionDirection
@@ -707,26 +668,92 @@ namespace FDEMCore.FxTMesh.Meshing
                     }
                 }
             }
-
             return pairs;
         }
 
-        private static bool TryGetSharedProjectionDirection((int ox, int oy) a, (int ox, int oy) b, out (int ox, int oy) dir)
+        //For the bundary edges, finds the triangle with the same fiber pair
+        private bool TryFindPeriodicPartnerForProjectedEdge(TriangulationMesh2D triangulation, Node projA, Node projB, CellBoundary boundary, out int partnerTriangleIndex, out (int ox, int oy) projectionDirection)
         {
-            if (a.ox != 0 && a.ox == b.ox)
+            partnerTriangleIndex = -1;
+            projectionDirection = (0, 0);
+
+            Point2D projectedMid = new Point2D(0.5 * (projA.P.X + projB.P.X), 0.5 * (projA.P.Y + projB.P.Y));
+
+            for (int triIdx = 0; triIdx < triangulation.Triangles.Count; triIdx++)
             {
-                dir = (a.ox, 0);
-                return true;
+                var tri = triangulation.Triangles[triIdx];
+
+                var nodes = new[]
+                {
+            triangulation.Nodes[tri[0]],
+            triangulation.Nodes[tri[1]],
+            triangulation.Nodes[tri[2]]
+        };
+
+                var edges = new[]
+                {
+            (nodes[0], nodes[1]),
+            (nodes[1], nodes[2]),
+            (nodes[2], nodes[0])
+        };
+
+                foreach (var edge in edges)
+                {
+                    Node a = edge.Item1;
+                    Node b = edge.Item2;
+
+                    bool sameFiberPair =
+                        (a.FiberId == projA.FiberId && b.FiberId == projB.FiberId) ||
+                        (a.FiberId == projB.FiberId && b.FiberId == projA.FiberId);
+
+                    if (!sameFiberPair)
+                        continue;
+
+                    bool isSameNodes = (NodesMatch(a, projA) && NodesMatch(b, projB)) || (NodesMatch(a, projB) && NodesMatch(b, projA));
+                    
+                    if (isSameNodes)
+                        continue;
+
+                    bool isEdge = CountTrianglesSharingProjectedEdge(triangulation, a, b) == 1;
+
+                    if (!isEdge)
+                        continue;
+
+                    Point2D partnerMid = new Point2D(0.5 * (a.P.X + b.P.X), 0.5 * (a.P.Y + b.P.Y));
+
+                    bool gotProjectionDirection = TryGetProjectionDirectionFromEdgeMidpoints(projectedMid, partnerMid, boundary, out projectionDirection);
+
+                    if (!gotProjectionDirection)
+                        continue;
+
+                    partnerTriangleIndex = triIdx;
+                    return true;
+                }
             }
 
-            if (a.oy != 0 && a.oy == b.oy)
-            {
-                dir = (0, a.oy);
-                return true;
-            }
-
-            dir = (0, 0);
             return false;
+        }
+
+        private bool TryGetProjectionDirectionFromEdgeMidpoints(Point2D projectedMid, Point2D partnerMid, CellBoundary boundary, out (int ox, int oy) direction)
+        {
+            direction = (0, 0);
+
+            double lx = boundary.ODimensions[1];
+            double ly = boundary.ODimensions[2];
+
+            double rawOx = (projectedMid.X - partnerMid.X) / lx;
+            double rawOy = (projectedMid.Y - partnerMid.Y) / ly;
+
+            int ox = (int)Math.Round(rawOx);
+            int oy = (int)Math.Round(rawOy);
+
+            double tol = 1e-6;
+
+            if (Math.Abs(rawOx - ox) > tol || Math.Abs(rawOy - oy) > tol)
+                return false;
+
+            direction = (ox, oy);
+            return true;
         }
 
         /// <summary>
@@ -749,7 +776,6 @@ namespace FDEMCore.FxTMesh.Meshing
                 {
                     if (node.Type == NodeType.FiberCenter &&
                         node.Offset == (0, 0) &&
-                        node.FiberId.HasValue &&
                         (node.FiberId == fiber1Id || node.FiberId == fiber2Id))
                     {
                         matchCount++;
@@ -796,11 +822,11 @@ namespace FDEMCore.FxTMesh.Meshing
                         continue;
                     if (node1.Offset != (0, 0) || node2.Offset != (0, 0))
                         continue;
-                    if (!node1.FiberId.HasValue || !node2.FiberId.HasValue)
+                    if (node1.FiberId==-1 || node2.FiberId == -1)
                         continue;
 
-                    int fiber1Id = node1.FiberId.Value;
-                    int fiber2Id = node2.FiberId.Value;
+                    int fiber1Id = node1.FiberId;
+                    int fiber2Id = node2.FiberId;
                     var fiber1 = fibers[fiber1Id];
                     var fiber2 = fibers[fiber2Id];
 
@@ -854,10 +880,8 @@ namespace FDEMCore.FxTMesh.Meshing
 
                     pairs.Add(new PeriodicFiberPair
                     {
-                        OriginalFiber1Id = fiber1Id,
-                        OriginalFiber2Id = fiber2Id,
-                        ProjectedFiber1Id = fiber1Id,
-                        ProjectedFiber2Id = fiber2Id,
+                        Fiber1Id = fiber1Id,
+                        Fiber2Id = fiber2Id,
                         OriginalTriangleIndex = triIdx,
                         ProjectedTriangleIndex = projectedTriIdx,
                         ProjectionDirection = projectionDirection
@@ -889,7 +913,7 @@ namespace FDEMCore.FxTMesh.Meshing
                 {
                     if (node.Type == NodeType.ProjectedFiber &&
                         node.Offset == projectionDirection &&
-                        node.FiberId.HasValue &&
+                        node.FiberId != -1 &&
                         (node.FiberId == fiber1Id || node.FiberId == fiber2Id))
                     {
                         matchCount++;
@@ -990,9 +1014,6 @@ namespace FDEMCore.FxTMesh.Meshing
                         continue;
                     }
 
-                    if (!projectedFiberNode.FiberId.HasValue)
-                        continue;
-
                     var direction = projectedFiberNode.Offset;
                     if (direction == (0, 0))
                         continue;
@@ -1004,20 +1025,20 @@ namespace FDEMCore.FxTMesh.Meshing
                         boundaryNode.P.Y - shift.Y);
 
                     int originalTriIdx = FindTriangleWithOriginalFiberAndBoundaryPoint(triangulation,
-                        projectedFiberNode.FiberId.Value,originalBoundaryPoint);
+                        projectedFiberNode.FiberId,originalBoundaryPoint);
 
                     //This skips if the triangle with the original fiber and boundary pt wasn't found.  
                     if (originalTriIdx < 0)
                         continue;
 
-                    string key = $"{projectedFiberNode.FiberId.Value}_{originalTriIdx}_{triIdx}_{boundaryNode.P.X:F10}_{boundaryNode.P.Y:F10}";
+                    string key = $"{projectedFiberNode.FiberId}_{originalTriIdx}_{triIdx}_{boundaryNode.P.X:F10}_{boundaryNode.P.Y:F10}";
 
                     if (!processed.Add(key))
                         continue;
 
                     pairs.Add(new PeriodicFiberBoundaryPair
                     {
-                        FiberId = projectedFiberNode.FiberId.Value,
+                        FiberId = projectedFiberNode.FiberId,
                         OriginalTriangleIndex = originalTriIdx,
                         ProjectedTriangleIndex = triIdx,
                         ProjectionDirection = direction,
@@ -1241,7 +1262,7 @@ namespace FDEMCore.FxTMesh.Meshing
             {
                 if (dOptions != null && dOptions.Debug)
                 {
-                    Console.WriteLine($"Building boundary elements for fibers {pair.OriginalFiber1Id} and {pair.OriginalFiber2Id}");
+                    Console.WriteLine($"Building boundary elements for fibers {pair.Fiber1Id} and {pair.Fiber2Id}");
                 }
 
                 BuildBoundaryFiberMatrixElementsForPair(pair, triangulation, fibers, boundary, config);
@@ -1264,7 +1285,7 @@ namespace FDEMCore.FxTMesh.Meshing
         private void BuildBoundaryFiberMatrixElementsForPair(PeriodicFiberPair pair, TriangulationMesh2D triangulation,
             IReadOnlyList<Fiber> fibers, CellBoundary boundary, ElementConfig config)
         {
-            // Get the original triangle's element nodes
+            // Get the partner triangle's element nodes
             var origTri = triangulation.Triangles[pair.OriginalTriangleIndex];
             var origNodes = new[] {
                 triangulation.Nodes[origTri[0]],
@@ -1290,7 +1311,7 @@ namespace FDEMCore.FxTMesh.Meshing
             {
                 if (origNodes[i].Type == NodeType.FiberCenter || origNodes[i].Type == NodeType.ProjectedFiber)
                 {
-                    var fiber = fibers[origNodes[i].FiberId.Value];
+                    var fiber = fibers[origNodes[i].FiberId];
                     var otherIndices = GetOtherIndices(i);
 
                     origElementNodes[i] = CalculateFiberSurfacePoint(
@@ -1314,7 +1335,7 @@ namespace FDEMCore.FxTMesh.Meshing
             {
                 if (projNodes[i].Type == NodeType.FiberCenter || projNodes[i].Type == NodeType.ProjectedFiber)
                 {
-                    var fiber = fibers[projNodes[i].FiberId.Value];
+                    var fiber = fibers[projNodes[i].FiberId];
                     var otherIndices = GetOtherIndices(i);
 
                     projElementNodes[i] = CalculateFiberSurfacePoint(
@@ -1338,16 +1359,19 @@ namespace FDEMCore.FxTMesh.Meshing
             Point2D fiber2NodeOrig = new Point2D(0, 0);
             Point2D fiber2NodeProj = new Point2D(0, 0);
 
+            // Locate the reconstructed fiber surface points for the two matching fibers in the partner and projected triangles.
             for (int i = 0; i < 3; i++)
             {
-                if (origNodes[i].FiberId == pair.OriginalFiber1Id && origNodes[i].Type == NodeType.FiberCenter)
+                if (origNodes[i].FiberId == pair.Fiber1Id)
                     fiber1NodeOrig = origElementNodes[i];
-                if (origNodes[i].FiberId == pair.OriginalFiber2Id && origNodes[i].Type == NodeType.FiberCenter)
+
+                if (origNodes[i].FiberId == pair.Fiber2Id)
                     fiber2NodeOrig = origElementNodes[i];
 
-                if (projNodes[i].FiberId == pair.ProjectedFiber1Id && projNodes[i].Type == NodeType.ProjectedFiber)
+                if (projNodes[i].FiberId == pair.Fiber1Id)
                     fiber1NodeProj = projElementNodes[i];
-                if (projNodes[i].FiberId == pair.ProjectedFiber2Id && projNodes[i].Type == NodeType.ProjectedFiber)
+
+                if (projNodes[i].FiberId == pair.Fiber2Id)
                     fiber2NodeProj = projElementNodes[i];
             }
             //Now shift the nodes over using the periodic shift to ensure they are in the correct position for element building
@@ -1356,8 +1380,8 @@ namespace FDEMCore.FxTMesh.Meshing
             var fiber2NodeOrigProjected = ShiftPoint(fiber2NodeOrig, periodicShift);
 
             // Build fiber elements
-            var fiber1 = fibers[pair.OriginalFiber1Id];
-            var fiber2 = fibers[pair.OriginalFiber2Id];
+            var fiber1 = fibers[pair.Fiber1Id];
+            var fiber2 = fibers[pair.Fiber2Id];
             var pos1 = new Point2D(fiber1.CurrentPosition[1], fiber1.CurrentPosition[2]);
             var pos2 = new Point2D(fiber2.CurrentPosition[1], fiber2.CurrentPosition[2]);
 
@@ -1412,8 +1436,8 @@ namespace FDEMCore.FxTMesh.Meshing
             Point2D[] triangle1ElementNodes, Point2D[] triangle2ElementNodes, Node[] sharedEdgeNodes,
             IReadOnlyList<Fiber> fibers, ElementConfig config)
         {
-            var fiber1 = fibers[sharedEdgeNodes[0].FiberId.Value];
-            var fiber2 = fibers[sharedEdgeNodes[1].FiberId.Value];
+            var fiber1 = fibers[sharedEdgeNodes[0].FiberId];
+            var fiber2 = fibers[sharedEdgeNodes[1].FiberId];
 
             // Use the actual node positions as fiber centers - these already include projection offsets
             // For original fibers (Offset=0,0), node.P is the original position
@@ -1468,12 +1492,12 @@ namespace FDEMCore.FxTMesh.Meshing
             if (sharedEdgeNodes[0].Type == NodeType.FiberCenter || sharedEdgeNodes[0].Type == NodeType.ProjectedFiber)
             {
                 fiberNode = sharedEdgeNodes[0];
-                fiber = fibers[fiberNode.FiberId.Value];
+                fiber = fibers[fiberNode.FiberId];
             }
             else
             {
                 fiberNode = sharedEdgeNodes[1];
-                fiber = fibers[fiberNode.FiberId.Value];
+                fiber = fibers[fiberNode.FiberId];
             }
 
             // Get fiber center position (includes projection offset if applicable)
@@ -1510,8 +1534,8 @@ namespace FDEMCore.FxTMesh.Meshing
             Point2D[] triangle1ElementNodes, Point2D[] triangle2ElementNodes, Node[] sharedEdgeNodes,
             IReadOnlyList<Fiber> fibers, ElementConfig config)
         {
-            var fiber1 = fibers[sharedEdgeNodes[0].FiberId.Value];
-            var fiber2 = fibers[sharedEdgeNodes[1].FiberId.Value];
+            var fiber1 = fibers[sharedEdgeNodes[0].FiberId];
+            var fiber2 = fibers[sharedEdgeNodes[1].FiberId];
 
             // Use the actual node positions as fiber centers - these already include projection offsets
             var fiber1Center = sharedEdgeNodes[0].P;
@@ -1568,13 +1592,13 @@ namespace FDEMCore.FxTMesh.Meshing
             {
                 fiberNode = sharedEdgeNodes[0];
                 boundaryNode = sharedEdgeNodes[1];
-                fiber = fibers[fiberNode.FiberId.Value];
+                fiber = fibers[fiberNode.FiberId];
             }
             else
             {
                 fiberNode = sharedEdgeNodes[1];
                 boundaryNode = sharedEdgeNodes[0];
-                fiber = fibers[fiberNode.FiberId.Value];
+                fiber = fibers[fiberNode.FiberId];
             }
 
             // Get positions
@@ -1667,7 +1691,7 @@ namespace FDEMCore.FxTMesh.Meshing
                 // Calculate surface point for fiber centers, use point as-is for boundary nodes
                 if (currentNode.Type == NodeType.FiberCenter || currentNode.Type == NodeType.ProjectedFiber)
                 {
-                    var fiber = fibers[currentNode.FiberId.Value];
+                    var fiber = fibers[currentNode.FiberId];
                     // Use the actual node position (which accounts for projection offsets)
                     Point2D fiberCenter = currentNode.P;
 
@@ -1909,10 +1933,8 @@ namespace FDEMCore.FxTMesh.Meshing
         /// </summary>
         private class PeriodicFiberPair
         {
-            public int OriginalFiber1Id { get; set; }
-            public int OriginalFiber2Id { get; set; }
-            public int ProjectedFiber1Id { get; set; }
-            public int ProjectedFiber2Id { get; set; }
+            public int Fiber1Id { get; set; }
+            public int Fiber2Id { get; set; }
             public int OriginalTriangleIndex { get; set; }
             public int ProjectedTriangleIndex { get; set; }
             public (int ox, int oy) ProjectionDirection { get; set; }
