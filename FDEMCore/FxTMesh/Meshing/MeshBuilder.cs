@@ -83,7 +83,6 @@ namespace FDEMCore.FxTMesh.Meshing
                 periodicData.PinnedNode);
         }
 
-
         private int AddOrGetGlobalNode(Point2D node)
         {
             string key = $"{node.X:F10}_{node.Y:F10}";
@@ -429,10 +428,6 @@ namespace FDEMCore.FxTMesh.Meshing
             return node.Type == NodeType.ProjectedBoundary
                 || node.Type == NodeType.BoundaryCorner;
         }
-
-
-
-
 
         /// <summary>
         /// Detects if any fibers in the triangle are too close to the opposite edge.
@@ -1385,12 +1380,19 @@ namespace FDEMCore.FxTMesh.Meshing
             var pos1 = new Point2D(fiber1.CurrentPosition[1], fiber1.CurrentPosition[2]);
             var pos2 = new Point2D(fiber2.CurrentPosition[1], fiber2.CurrentPosition[2]);
 
+            //Try this new code to override
+            var projectedFiber1Node = projNodes.First(n => n.FiberId == pair.Fiber1Id);
+            var projectedFiber2Node = projNodes.First(n => n.FiberId == pair.Fiber2Id);
+            var fiber1Nodes = BuildBoundaryFiberElement(projectedFiber1Node.P,fiber1NodeOrigProjected,fiber1NodeProj,
+                fiber1.Radius,pair.ProjectionDirection);
+            var fiber2Nodes = BuildBoundaryFiberElement(projectedFiber2Node.P, fiber2NodeOrigProjected, fiber2NodeProj,
+                fiber2.Radius, pair.ProjectionDirection);
 
-            var fiber1Nodes = BuildBoundaryFiberElement(ShiftPoint(pos1, periodicShift), fiber1NodeOrigProjected,
+            /*var fiber1Nodes = BuildBoundaryFiberElement(ShiftPoint(pos1, periodicShift), fiber1NodeOrigProjected,
                 fiber1NodeProj, fiber1.Radius, pair.ProjectionDirection);
             var fiber2Nodes = BuildBoundaryFiberElement(ShiftPoint(pos2, periodicShift), fiber2NodeOrigProjected,
                 fiber2NodeProj, fiber2.Radius, pair.ProjectionDirection);
-
+            */
             //Now do the quad points
             var fiber2NodesForQuad = (Point2D[])fiber2Nodes.Clone();
 

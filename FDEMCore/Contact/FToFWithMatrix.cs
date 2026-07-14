@@ -272,10 +272,6 @@ namespace FDEMCore.Contact
 			tanForceMag = 0;
 			momentMag = force[3];
 
-			if (force[3] > 0)
-			{
-				bool stophere = true;
-			}
 
 			normForceVect = VectorMath.ScalarMultiply(normForceMag, e21N);
 			tanForceVect = VectorMath.ScalarMultiply(tanForceMag, e21T);
