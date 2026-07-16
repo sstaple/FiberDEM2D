@@ -1575,6 +1575,7 @@ namespace FDEMCore.FxTMesh.Meshing
 
             // Determine matrix element node order (creates 8-node quad connecting the two fibers)
             var matrixResult = _elementBuilder.BuildMatrixQuad(fiber1Nodes, fiber2Nodes, isEdgeCCW);
+            var matrixResult = _elementBuilder.BuildMatrixQuad(fiber1Nodes, fiber2Nodes, false);
             AddElement(ElementPhase.Matrix, matrixResult);
         }
 
