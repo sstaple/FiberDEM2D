@@ -18,8 +18,11 @@ namespace FDEMCore.FxTMesh.Meshing
     public sealed class DelaunayTriangulator
     {
         private StreamWriter? _logWriter;
+        double areaTol;
         public TriangulationMesh2D GenerateTriangulation(CellBoundary boundary, IReadOnlyList<Fiber> fibers, DebugOptions? dOptions = null, MeshOptions? options = null)
         {
+            areaTol = 1e-6 * boundary.ODimensions[1] * boundary.ODimensions[2];
+
             options ??= new MeshOptions();
             dOptions ??= new DebugOptions();
             if (fibers == null) throw new ArgumentNullException(nameof(fibers));
@@ -379,8 +382,9 @@ namespace FDEMCore.FxTMesh.Meshing
                             double side3 = Side(p_unique1, p_unique2, p_shared1);
                             double side4 = Side(p_unique1, p_unique2, p_shared2);
 
-                            // Only add if BOTH checks pass (fully convex quadrilateral)
-                            if (side1 * side2 < 0 && side3 * side4 < 0)
+                            // Only add if BOTH checks pass (fully convex quadrilateral) plus not colinear (area > areaTol)
+                            if (side1 * side2 < 0 &&  side3 * side4 < 0 && Math.Abs(side1) > areaTol &&
+                                Math.Abs(side2) > areaTol && Math.Abs(side3) > areaTol &&  Math.Abs(side4) > areaTol)
                             {
                                 interiorEdges.Add((i, j, edge));
                             }
@@ -514,25 +518,20 @@ namespace FDEMCore.FxTMesh.Meshing
             double side1 = Side(p_shared1, p_shared2, p_unique1);
             double side2 = Side(p_shared1, p_shared2, p_unique2);
 
-            if (side1 * side2 > 0)
-            {
-                // Both unique nodes on same side = concave quadrilateral = swap would overlap
-                // Abort the swap
-                return;
-            }
-
             // Check 2: Shared edge nodes must be on OPPOSITE sides of the new diagonal
             // If they're on the same side, the new diagonal exits the quadrilateral
             double side3 = Side(p_unique1, p_unique2, p_shared1);
             double side4 = Side(p_unique1, p_unique2, p_shared2);
 
-            if (side3 * side4 > 0)
-            {
-                // Both shared nodes on same side of new diagonal = new diagonal exits quad
-                // Swapping would create overlapping triangles
-                return;
-            }
+            // Both unique nodes on same side = concave quadrilateral = swap would overlap
+            // Abort the swap
+            bool uniqueNodesOpposite =side1 * side2 < 0 && Math.Abs(side1) > areaTol && Math.Abs(side2) > areaTol;
 
+            bool sharedNodesOpposite = side3 * side4 < 0 && Math.Abs(side3) > areaTol && Math.Abs(side4) > areaTol;
+
+            if (!uniqueNodesOpposite || !sharedNodesOpposite)
+                return;
+            
             int baseTri1 = tri1Idx * 3;
             int baseTri2 = tri2Idx * 3;
 

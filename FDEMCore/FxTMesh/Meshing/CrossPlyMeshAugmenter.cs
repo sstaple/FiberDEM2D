@@ -146,34 +146,38 @@ namespace FDEMCore.FxTMesh.Meshing
 
         private static Point2D[] BuildQuad6(Point2D p0, Point2D p1, Point2D p2, Point2D p3)
         {
-            return new[] { p0, ElementBuilderBase.Midpoint(p0, p1), p1, p3, ElementBuilderBase.Midpoint(p3, p2), p2 };
+            Point2D[] nodes = new[] { p0, ElementBuilderBase.Midpoint(p0, p1), p1, p3, ElementBuilderBase.Midpoint(p3, p2), p2 };
+            return ElementBuilderBase.EnsureCcwQuad6(nodes);
         }
 
         private static Point2D[] BuildQuad8(Point2D p0, Point2D p1, Point2D p2, Point2D p3)
         {
-            return new[] { p0, ElementBuilderBase.Midpoint(p0, p1), p1, ElementBuilderBase.Midpoint(p1, p2), p2, 
+            Point2D[] nodes = new[] { p0, ElementBuilderBase.Midpoint(p0, p1), p1, ElementBuilderBase.Midpoint(p1, p2), p2,
                 ElementBuilderBase.Midpoint(p2, p3), p3, ElementBuilderBase.Midpoint(p3, p0) };
+            return ElementBuilderBase.EnsureCcwQuad8(nodes);
         }
 
         private static Point2D[] BuildQuad9(Point2D p0, Point2D p1, Point2D p2, Point2D p3)
         {
-            return BuildQuad8(p0, p1, p2, p3).Concat(new[] { ElementBuilderBase.Centroid(p0, p1, p2, p3) }).ToArray();
+            Point2D[] nodes = BuildQuad8(p0, p1, p2, p3).Concat(new[] { ElementBuilderBase.Centroid(p0, p1, p2, p3) }).ToArray();
+            return ElementBuilderBase.EnsureCcwQuad9(nodes);
         }
 
         private static Point2D[] BuildQuad12(Point2D p0, Point2D p1, Point2D p2, Point2D p3)
         {
-            return new[]
+            Point2D[] nodes = new[]
             {
                 p0, ElementBuilderBase.PointAlong(p0, p1, 1.0 / 3.0), ElementBuilderBase.PointAlong(p0, p1, 2.0 / 3.0), p1,
                 ElementBuilderBase.PointAlong(p1, p2, 1.0 / 3.0), ElementBuilderBase.PointAlong(p1, p2, 2.0 / 3.0), p2,
                 ElementBuilderBase.PointAlong(p2, p3, 1.0 / 3.0), ElementBuilderBase.PointAlong(p2, p3, 2.0 / 3.0), p3,
                 ElementBuilderBase.PointAlong(p3, p0, 1.0 / 3.0), ElementBuilderBase.PointAlong(p3, p0, 2.0 / 3.0)
             };
+            return ElementBuilderBase.EnsureCcwQuad12(nodes);
         }
 
         private static Point2D[] BuildQuad16(Point2D p0, Point2D p1, Point2D p2, Point2D p3)
         {
-            return BuildQuad12(p0, p1, p2, p3)
+            Point2D[] nodes = BuildQuad12(p0, p1, p2, p3)
                 .Concat(new[]
                 {
                     ElementBuilderBase.BilinearPoint(p0, p1, p2, p3, 1.0 / 3.0, 1.0 / 3.0),
@@ -182,6 +186,7 @@ namespace FDEMCore.FxTMesh.Meshing
                     ElementBuilderBase.BilinearPoint(p0, p1, p2, p3, 1.0 / 3.0, 2.0 / 3.0)
                 })
                 .ToArray();
+            return ElementBuilderBase.EnsureCcwQuad16(nodes);
         }
 
     }

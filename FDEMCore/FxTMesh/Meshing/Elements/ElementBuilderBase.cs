@@ -9,11 +9,11 @@ namespace FDEMCore.FxTMesh.Meshing.Elements
         public abstract ElementBuildResult BuildInteriorMatrixTriangle(Point2D node0, Point2D node1, Point2D node2);
 
         public abstract ElementBuildResult BuildFiberTriangle(Point2D fiberCenter, Point2D surfaceNode1,
-            Point2D surfaceNode2, double fiberRadius, bool isEdgeCCW);
+            Point2D surfaceNode2, double fiberRadius);
 
         public abstract ElementBuildResult BuildMatrixQuad(Point2D[] fiber1Nodes, Point2D[] fiber2Nodes, bool isEdgeCCW);
 
-        public abstract ElementBuildResult BuildFiberBoundaryMatrixTriangle(Point2D[] fiberNodes, Point2D boundaryPoint, bool isEdgeCCW);
+        public abstract ElementBuildResult BuildFiberBoundaryMatrixTriangle(Point2D[] fiberNodes, Point2D boundaryPoint);
 
         protected static ElementBuildResult MatrixTriangle(string type, Point2D[] nodes)
         {
@@ -34,31 +34,25 @@ namespace FDEMCore.FxTMesh.Meshing.Elements
 
 
         public static Point2D[] BuildFiberTriangle6(Point2D fiberCenter, Point2D node1,
-            Point2D node2, double fiberRadius, bool isEdgeCCW)
+            Point2D node2, double fiberRadius)
         {
             var nodes = new Point2D[6];
 
             nodes[0] = fiberCenter;
-
-            if (isEdgeCCW)
-            {
-                nodes[2] = node2;
-                nodes[4] = node1;
-            }
-            else
-            {
-                nodes[2] = node1;
-                nodes[4] = node2;
-            }
+            nodes[2] = node2;
+            nodes[4] = node1;
 
             nodes[1] = Midpoint(nodes[0], nodes[2]);
             nodes[5] = Midpoint(nodes[0], nodes[4]);
             nodes[3] = FiberSurfaceArcPoint(fiberCenter, nodes[2], nodes[4], fiberRadius, 0.5);
+
+            //Check CCW orientation and reverse if necessary
+            nodes = EnsureCcwTriangle6(nodes);
             return nodes;
         }
 
         public static Point2D[] BuildFiberTriangle9(Point2D fiberCenter, Point2D node1,
-            Point2D node2, double fiberRadius, bool isEdgeCCW)
+            Point2D node2, double fiberRadius)
         {
             var nodes = new Point2D[9];
 
@@ -66,18 +60,9 @@ namespace FDEMCore.FxTMesh.Meshing.Elements
 
             Point2D surfaceA;
             Point2D surfaceB;
-
-            if (isEdgeCCW)
-            {
-                surfaceA = node2;
-                surfaceB = node1;
-            }
-            else
-            {
-                surfaceA = node1;
-                surfaceB = node2;
-            }
-
+            surfaceA = node2;
+            surfaceB = node1;
+            
             // Edge from center to surfaceA
             nodes[1] = PointAlong(fiberCenter, surfaceA, 1.0 / 3.0);
             nodes[2] = PointAlong(fiberCenter, surfaceA, 2.0 / 3.0);
@@ -94,6 +79,8 @@ namespace FDEMCore.FxTMesh.Meshing.Elements
             nodes[7] = PointAlong(surfaceB, fiberCenter, 1.0 / 3.0);
             nodes[8] = PointAlong(surfaceB, fiberCenter, 2.0 / 3.0);
 
+            //Check CCW orientation and reverse if necessary
+            nodes = EnsureCcwTriangle9(nodes);
             return nodes;
         }
 
@@ -104,7 +91,8 @@ namespace FDEMCore.FxTMesh.Meshing.Elements
 
         public static Point2D[] BuildMatrixTriangle3(Point2D node0, Point2D node1, Point2D node2)
         {
-            return new[] { node0, node1, node2 };
+            Point2D [] nodes = EnsureCcwTriangle3(new[] { node0, node1, node2 });
+            return nodes;
         }
 
         public static Point2D[] BuildMatrixTriangle6(Point2D node0, Point2D node1, Point2D node2)
@@ -119,6 +107,7 @@ namespace FDEMCore.FxTMesh.Meshing.Elements
             nodes[3] = Midpoint(node1, node2);
             nodes[5] = Midpoint(node2, node0);
 
+            nodes = EnsureCcwTriangle6(nodes);
             return nodes;
         }
 
@@ -144,81 +133,52 @@ namespace FDEMCore.FxTMesh.Meshing.Elements
             nodes[7] = PointAlong(node2, node0, 1.0 / 3.0);
             nodes[8] = PointAlong(node2, node0, 2.0 / 3.0);
 
+            nodes = EnsureCcwTriangle9(nodes);
             return nodes;
         }
 
         protected static Point2D[] BuildMatrixTriangle3WithFiberEdge(
-            Point2D[] fiberNodes, Point2D boundaryPoint, bool isEdgeCCW)
+            Point2D[] fiberNodes, Point2D boundaryPoint)
         {
-            if (isEdgeCCW)
-                return BuildMatrixTriangle3(fiberNodes[2], fiberNodes[4], boundaryPoint);
-
-            return BuildMatrixTriangle3(fiberNodes[4], fiberNodes[2], boundaryPoint);
+            Point2D[] nodes = BuildMatrixTriangle3(fiberNodes[2], fiberNodes[4], boundaryPoint);
+                    //: BuildMatrixTriangle3(fiberNodes[4], fiberNodes[2], boundaryPoint);
+            nodes = EnsureCcwTriangle3(nodes);
+            return nodes;
         }
 
         protected static Point2D[] BuildMatrixTriangle6WithFiberEdge(
-            Point2D[] fiberNodes, Point2D boundaryPoint, bool isEdgeCCW)
+            Point2D[] fiberNodes, Point2D boundaryPoint)
         {
             Point2D node0;
             Point2D node1;
 
-            if (isEdgeCCW)
-            {
                 node0 = fiberNodes[2];
                 node1 = fiberNodes[4];
-            }
-            else
-            {
-                node0 = fiberNodes[4];
-                node1 = fiberNodes[2];
-            }
+            
 
-            return new[]
-            {
-        node0,
-        fiberNodes[3],
-        node1,
-        Midpoint(node1, boundaryPoint),
-        boundaryPoint,
-        Midpoint(boundaryPoint, node0)
-    };
+            Point2D[] nodes = new[]{node0, fiberNodes[3], node1,  Midpoint(node1, boundaryPoint), 
+                boundaryPoint, Midpoint(boundaryPoint, node0)};
+
+            return EnsureCcwTriangle6(nodes);
         }
 
         protected static Point2D[] BuildMatrixTriangle9WithFiberEdge(
-            Point2D[] fiberNodes, Point2D boundaryPoint, bool isEdgeCCW)
+            Point2D[] fiberNodes, Point2D boundaryPoint)
         {
             Point2D node0;
             Point2D node1;
             Point2D curved1;
             Point2D curved2;
 
-            if (isEdgeCCW)
-            {
                 node0 = fiberNodes[3];
                 curved1 = fiberNodes[4];
                 curved2 = fiberNodes[5];
                 node1 = fiberNodes[6];
-            }
-            else
-            {
-                node0 = fiberNodes[6];
-                curved1 = fiberNodes[5];
-                curved2 = fiberNodes[4];
-                node1 = fiberNodes[3];
-            }
+           
+            Point2D[] nodes = new[]{node0,curved1,curved2,node1,PointAlong(node1, boundaryPoint, 1.0 / 3.0),PointAlong(node1, boundaryPoint, 2.0 / 3.0),
+                boundaryPoint,PointAlong(boundaryPoint, node0, 1.0 / 3.0),PointAlong(boundaryPoint, node0, 2.0 / 3.0)};
 
-            return new[]
-            {
-        node0,
-        curved1,
-        curved2,
-        node1,
-        PointAlong(node1, boundaryPoint, 1.0 / 3.0),
-        PointAlong(node1, boundaryPoint, 2.0 / 3.0),
-        boundaryPoint,
-        PointAlong(boundaryPoint, node0, 1.0 / 3.0),
-        PointAlong(boundaryPoint, node0, 2.0 / 3.0)
-    };
+            return EnsureCcwTriangle9(nodes);
         }
 
         #endregion
@@ -247,12 +207,12 @@ namespace FDEMCore.FxTMesh.Meshing.Elements
                 nodes[1] = fiber2Nodes[3];
                 nodes[2] = fiber2Nodes[2];
 
-                nodes[3] = fiber1Nodes[4];
+                nodes[3] = fiber1Nodes[2];
                 nodes[4] = fiber1Nodes[3];
-                nodes[5] = fiber1Nodes[2];
+                nodes[5] = fiber1Nodes[4];
             }
-
-            return nodes;
+            
+            return EnsureCcwQuad6(nodes); 
         }
 
         public static Point2D[] BuildMatrixQuad8(Point2D[] fiber1Nodes,
@@ -280,11 +240,11 @@ namespace FDEMCore.FxTMesh.Meshing.Elements
                 nodes[5] = fiber1Nodes[3];
                 nodes[6] = fiber1Nodes[2];
             }
-
+            
             nodes[3] = Midpoint(nodes[2], nodes[4]);
             nodes[7] = Midpoint(nodes[0], nodes[6]);
 
-            return nodes;
+            return EnsureCcwQuad8(nodes); 
         }
 
         public static Point2D[] BuildMatrixQuad9(Point2D[] fiber1Nodes,
@@ -298,7 +258,7 @@ namespace FDEMCore.FxTMesh.Meshing.Elements
 
             //nodes[8] = Centroid(q8[0], q8[2], q8[4], q8[6]);
             nodes[8] = PointAlong(q8[1], q8[5], 0.5);
-            return nodes;
+            return EnsureCcwQuad9(nodes);
         }
 
         public static Point2D[] BuildMatrixQuad12(Point2D[] fiber1Nodes, Point2D[] fiber2Nodes, bool isEdgeCCW)
@@ -322,7 +282,7 @@ namespace FDEMCore.FxTMesh.Meshing.Elements
             nodes[10] = PointAlong(q8[6], q8[0], 1.0 / 3.0);
             nodes[11] = PointAlong(q8[6], q8[0], 2.0 / 3.0);
 
-            return nodes;
+            return EnsureCcwQuad12(nodes);
         }
 
         public static Point2D[] BuildMatrixQuad16(Point2D[] fiber1Nodes, Point2D[] fiber2Nodes, bool isEdgeCCW)
@@ -343,7 +303,7 @@ namespace FDEMCore.FxTMesh.Meshing.Elements
             nodes[14] = BilinearPoint(c0, c1, c2, c3, 2.0 / 3.0, 2.0 / 3.0);
             nodes[15] = BilinearPoint(c0, c1, c2, c3, 1.0 / 3.0, 2.0 / 3.0);
 
-            return nodes;
+            return EnsureCcwQuad16(nodes);
         }
         #endregion
 
@@ -427,46 +387,58 @@ namespace FDEMCore.FxTMesh.Meshing.Elements
             return dx * dx + dy * dy;
         }
 
-        /// <summary>
-        /// Determines the node ordering for a curved fiber element (6 nodes).
-        /// Based on MATLAB FE_Mesh_2D.DetermineFiberNodeOrder (lines 286-305).
-        /// </summary>
-        private static Point2D[] DetermineFiberNodeOrder(Point2D fiberCenter, Point2D node1, Point2D node2, double fiberRadius,
-            bool isEdgeCCW)
+        protected static Point2D[] EnsureCcw(Point2D[] nodes, int[] cornerMap, int[] reverseMap)
         {
-            var nodes = new Point2D[6];
-            nodes[0] = fiberCenter;
+            Point2D[] corners = cornerMap.Select(i => nodes[i]).ToArray();
 
-            if (isEdgeCCW)
-            {
-                nodes[2] = node2;
-                nodes[4] = node1;
-            }
-            else
-            {
-                nodes[2] = node1;
-                nodes[4] = node2;
-            }
+            if (MeshBuilder.SignedArea2(corners) >= 0.0)
+                return nodes;
 
-            // Midpoint nodes
-            nodes[1] = new Point2D((nodes[0].X + nodes[2].X) / 2.0, (nodes[0].Y + nodes[2].Y) / 2.0);
-            nodes[5] = new Point2D((nodes[0].X + nodes[4].X) / 2.0, (nodes[0].Y + nodes[4].Y) / 2.0);
+            Point2D[] fixedNodes = reverseMap.Select(i => nodes[i]).ToArray();
 
-            // Middle node on fiber surface
-            Point2D midPointBetweenNodes2And4 = new Point2D(
-                (nodes[2].X + nodes[4].X) / 2.0,
-                (nodes[2].Y + nodes[4].Y) / 2.0);
-
-            var midPointVector = MathHelper.MakeVector2D(fiberCenter, midPointBetweenNodes2And4);
-            double midPointAngle = Math.Atan2(midPointVector.Y, midPointVector.X);
-
-            nodes[3] = new Point2D(
-                fiberCenter.X + fiberRadius * Math.Cos(midPointAngle),
-                fiberCenter.Y + fiberRadius * Math.Sin(midPointAngle));
-
-            return nodes;
+            return fixedNodes;
         }
 
+        public static Point2D[] EnsureCcwTriangle3(Point2D[] nodes)
+        {
+            nodes = EnsureCcw(nodes, new[] { 0, 1, 2 }, new[] { 0, 2, 1 });
+            return nodes;
+        }
+        public static Point2D[] EnsureCcwTriangle6(Point2D[] nodes)
+        {
+            nodes = EnsureCcw(nodes, new[] { 0, 2, 4 }, new[] { 0, 5, 4, 3, 2, 1 });
+            return nodes;
+        }
+        public static Point2D[] EnsureCcwTriangle9(Point2D[] nodes)
+        {
+            nodes = EnsureCcw(nodes, new[] { 0, 3, 6 }, new[] { 0, 8, 7, 6, 5, 4, 3, 2, 1 });
+            return nodes;
+        }
+        public static Point2D[] EnsureCcwQuad6(Point2D[] nodes)
+        {
+            nodes = EnsureCcw(nodes, new[] { 0, 2, 3, 5 }, new[] { 0, 5,4,3,2,1 });
+            return nodes;
+        }
+        public static Point2D[] EnsureCcwQuad8(Point2D[] nodes)
+        {
+            nodes = EnsureCcw(nodes, new[] { 0, 2, 4, 6 }, new[] { 0, 7, 6, 5, 4, 3, 2, 1 });
+            return nodes;
+        }
+        public static Point2D[] EnsureCcwQuad9(Point2D[] nodes)
+        {
+            nodes = EnsureCcw(nodes, new[] { 0, 2, 4, 6 }, new[] { 0, 7, 6, 5, 4, 3, 2, 1, 8 });
+            return nodes;
+        }
+        public static Point2D[] EnsureCcwQuad12(Point2D[] nodes)
+        {
+            nodes = EnsureCcw(nodes, new[] { 0, 3, 6, 9 }, new[] { 0, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1 });
+            return nodes;
+        }
+        public static Point2D[] EnsureCcwQuad16(Point2D[] nodes)
+        {
+            nodes = EnsureCcw(nodes, new[] { 0, 3, 6, 9 }, new[] { 0, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 15, 14, 13, 12 });
+            return nodes;
+        }
         #endregion
     }
 }
