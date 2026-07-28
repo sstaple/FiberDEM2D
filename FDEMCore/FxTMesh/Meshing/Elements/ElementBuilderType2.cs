@@ -22,7 +22,7 @@ namespace FDEMCore.FxTMesh.Meshing.Elements
         public override ElementBuildResult BuildMatrixQuad(Point2D[] fiber1Nodes, Point2D[] fiber2Nodes, bool isEdgeCCW)
         {
             var nodes = BuildMatrixQuad8(fiber1Nodes, fiber2Nodes, isEdgeCCW);
-            return MatrixQuad("2DQ8.4", nodes);
+            return MatrixQuad("2DQ8.2", nodes);
         }
 
         public override ElementBuildResult BuildFiberBoundaryMatrixTriangle(Point2D[] fiberNodes, Point2D boundaryPoint)
