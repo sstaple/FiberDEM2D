@@ -11,7 +11,7 @@ namespace FDEMCore.FxTMesh.Meshing.Elements
         public override ElementBuildResult BuildInteriorMatrixTriangle(Point2D node0, Point2D node1, Point2D node2)
         {
             var nodes = BuildMatrixTriangle9(node0, node1, node2);
-            return MatrixTriangle("2DT9.6", nodes);
+            return MatrixTriangle("2P5DT10.6", nodes);
         }
 
         public override ElementBuildResult BuildFiberTriangle(Point2D fiberCenter, Point2D surfaceNode1,
@@ -19,13 +19,13 @@ namespace FDEMCore.FxTMesh.Meshing.Elements
         {
             var nodes = BuildFiberTriangle9(fiberCenter, surfaceNode1,
                 surfaceNode2, fiberRadius);
-            return FiberTriangle("2DT9.6", nodes);
+            return FiberTriangle("2P5DT10.6", nodes);
         }
 
         public override ElementBuildResult BuildMatrixQuad(Point2D[] fiber1Nodes, Point2D[] fiber2Nodes, bool isEdgeCCW)
         {
             var nodes = BuildMatrixQuad12(fiber1Nodes, fiber2Nodes, isEdgeCCW);
-            return MatrixQuad("2DQ12.9", nodes);
+            return MatrixQuad("2P5DQ13.9", nodes);
         }
 
         public override ElementBuildResult BuildFiberBoundaryMatrixTriangle(Point2D[] fiberNodes, Point2D boundaryPoint)

@@ -205,15 +205,31 @@ namespace FDEMCore.FxTMesh.IO
             return elementType switch
             {
                 "2DT3" => 5,
+                "2P5DT4" => 5,
+
                 "2DT6" => 22,
+                "2P5DT7" => 22,
+
                 "2DT9" => 69,   // fallback/check later if ParaView supports this
+                "2P5DT10" => 69,
 
                 "2DQ4" => 9,
+                "2P5DQ5" => 9,
+
                 "2DQ6" => 9,    // fallback visualization only
+                "2P52DQ7" => 9,
+
                 "2DQ8" => 23,
+                "2P5DQ9" => 23,
+
                 "2DQ9" => 28,
+                "2P5DQ10" => 28,
+
                 "2DQ12" => 70,   // fallback/check later
+                "2P5DQ13" => 70,
+
                 "2DQ16" => 70,   // fallback/check later
+                "2P5DQ17" => 70,
 
                 _ => throw new NotSupportedException($"No VTK type for {elem.ElementName}")
             };
@@ -226,12 +242,16 @@ namespace FDEMCore.FxTMesh.IO
             return elementType switch
             {
                 "2DT3" => new[] { 0, 1, 2 },
+                "2P5DT4" => new[] { 0, 1, 2 },
 
                 "2DT6" => new[] { 0, 2, 4, 1, 3, 5 },
+                "2P5DT7" => new[] { 0, 2, 4, 1, 3, 5 },
 
                 "2DQ8" => new[] { 0, 2, 4, 6, 1, 3, 5, 7 },
+                "2P5DQ9" => new[] { 0, 2, 4, 6, 1, 3, 5, 7 },
 
                 "2DQ9" => new[] { 0, 2, 4, 6, 1, 3, 5, 7, 8 },
+                "2P5DQ10" => new[] { 0, 2, 4, 6, 1, 3, 5, 7, 8 },
 
                 _ => Enumerable.Range(0, elem.NodeCount).ToArray()
             };
