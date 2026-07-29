@@ -11,7 +11,8 @@ namespace FDEMCore.FxTMesh.Meshing
     {
         private const double NodeTolerance = 1e-8;
 
-        public static FEMesh AddZCrossPly(FEMesh mesh, CellBoundary boundary, double thickness, ElementConfig config, DebugOptions? dOptions = null)
+
+        public static FEMesh AddZCrossPly(FEMesh mesh, CellBoundary boundary, double thickness, FxTElementFamily config, DebugOptions? dOptions = null)
         {
             if (mesh == null) throw new ArgumentNullException(nameof(mesh));
             if (boundary == null) throw new ArgumentNullException(nameof(boundary));
@@ -33,13 +34,18 @@ namespace FDEMCore.FxTMesh.Meshing
             if (bottom.Count < 2 || top.Count < 2)
                 throw new InvalidOperationException("Could not find enough top/bottom boundary nodes to build CrossPly layers.");
 
-            int nNodesPerTriangleSide = config.FiberTriangleNodes / 3;
+            IElementBuilder myElementBuilder = ElementBuilderProvider.Create(config);
+            int nNodesPerTriangleSide = myElementBuilder.GetNNodesPerSideOfElement();
 
-            double spacing = (bottom[1].Point.X - bottom[0].Point.X) * nNodesPerTriangleSide;
-            if (spacing <= NodeTolerance)
+            // Calculate average spacing from both top and bottom edges
+            double avgBottomSpacing = CalculateAverageNodeSpacing(bottom, nNodesPerTriangleSide);
+            double aveTopSpacing = CalculateAverageNodeSpacing(top, nNodesPerTriangleSide);
+            double avgSpacing = (avgBottomSpacing + aveTopSpacing) / 2.0; // Average of both edges
+
+            if (avgSpacing <= NodeTolerance)
                 throw new InvalidOperationException("Could not determine valid boundary point spacing for CrossPly layers.");
 
-            int nRows = Math.Max(1, (int)Math.Round(thickness / spacing));
+            int nRows = Math.Max(1, (int)Math.Round(thickness / avgSpacing));
             double dz = thickness / nRows;
 
             int nextElementId = elements.Count;
@@ -62,6 +68,32 @@ namespace FDEMCore.FxTMesh.Meshing
                 periodicData.PinnedNode);
         }
 
+        /// <summary>
+        /// Calculates the average spacing between consecutive corner nodes (primary nodes) along an edge.
+        /// </summary>
+        private static double CalculateAverageNodeSpacing(List<(int Index, Point2D Point)> edge, int nNodesPerTriangleSide)
+        {
+            // Extract primary/corner nodes (every nNodesPerTriangleSide-th node)
+            var primaryEdge = edge.Where((e, i) => i % nNodesPerTriangleSide == 0).ToList();
+
+            if (primaryEdge.Count < 2)
+                return 0.0;
+
+            // Ensure we include the last node if it's not already included
+            if (primaryEdge[^1].Index != edge[^1].Index)
+                primaryEdge.Add(edge[^1]);
+
+            // Calculate spacings between consecutive primary nodes
+            double totalSpacing = 0.0;
+            for (int i = 0; i < primaryEdge.Count - 1; i++)
+            {
+                double dx = primaryEdge[i + 1].Point.X - primaryEdge[i].Point.X;
+                totalSpacing += Math.Abs(dx);
+            }
+
+            return totalSpacing / (primaryEdge.Count - 1);
+        }
+
         private static List<(int Index, Point2D Point)> FindEdgeNodes(List<Point2D> nodes, double zValue)
         {
             return nodes
@@ -71,54 +103,61 @@ namespace FDEMCore.FxTMesh.Meshing
                 .ToList();
         }
 
-        private static void AddLayer(List<(int Index, Point2D Point)> edge, double dz, double outerZ, List<Point2D> nodes, List<Element> elements, ref int nextElementId, ElementConfig config)
+        private static void AddLayer(List<(int Index, Point2D Point)> edge, double dz, double outerZ, List<Point2D> nodes, List<Element> elements, ref int nextElementId, FxTElementFamily config)
         {
-            //WARNING: This assumes that all of the triangular nodes are evenly spaced along the edge. If this is not the case, the resulting mesh may be invalid.
-            int step = config.MatrixTriangleNodes / 3;
-            var primaryEdge = edge.Where((e, i) => i % step == 0).ToList();
+            IElementBuilder myElementBuilder = ElementBuilderProvider.Create(config);
+            int step = myElementBuilder.GetNNodesPerSideOfElement();
+
+            // Extract corner/primary nodes only
+            var primaryEdge = edge.Where((e, i) => i % (step-1) == 0).ToList();
 
             if (primaryEdge[^1].Index != edge[^1].Index)
                 primaryEdge.Add(edge[^1]);
 
-            int nCols = primaryEdge.Count;
-            int nRows = Math.Max(1, (int)Math.Round(Math.Abs((outerZ - primaryEdge[0].Point.Y) / dz)));
+            int nRows = Math.Max(1, (int)Math.Round(Math.Abs((outerZ - edge[0].Point.Y) / dz)));
 
+            // Create all rows with ALL boundary nodes (ensures alignment)
             var rowNodeIds = new List<int[]>();
-            rowNodeIds.Add(primaryEdge.Select(e => e.Index).ToArray());
+            rowNodeIds.Add(edge.Select(e => e.Index).ToArray()); // First row is the full boundary
 
             for (int r = 1; r <= nRows; r++)
             {
-                double z = primaryEdge[0].Point.Y + r * dz;
-                var row = new int[nCols];
+                double z = edge[0].Point.Y + r * dz;
+                var row = new int[edge.Count];
 
-                for (int c = 0; c < nCols; c++)
+                // Create nodes at all boundary X positions
+                for (int c = 0; c < edge.Count; c++)
                 {
-                    var p = new Point2D(primaryEdge[c].Point.X, z);
+                    var p = new Point2D(edge[c].Point.X, z);
                     row[c] = AddNode(nodes, p);
                 }
 
                 rowNodeIds.Add(row);
             }
 
+            // Create quad elements ONLY between consecutive corner nodes
             for (int r = 0; r < nRows; r++)
             {
-                for (int c = 0; c < nCols - 1; c++)
+                for (int i = 0; i < primaryEdge.Count - 1; i++)
                 {
-                    Point2D p00 = nodes[rowNodeIds[r][c]];
-                    Point2D p10 = nodes[rowNodeIds[r][c + 1]];
-                    Point2D p11 = nodes[rowNodeIds[r + 1][c + 1]];
-                    Point2D p01 = nodes[rowNodeIds[r + 1][c]];
+                    // Find indices in the full edge list for this corner pair
+                    int c0 = edge.FindIndex(e => e.Index == primaryEdge[i].Index);
+                    int c1 = edge.FindIndex(e => e.Index == primaryEdge[i + 1].Index);
 
-                    var quadNodes = BuildQuadNodes(p00, p10, p11, p01, config);
+                    Point2D p00 = nodes[rowNodeIds[r][c0]];
+                    Point2D p10 = nodes[rowNodeIds[r][c1]];
+                    Point2D p11 = nodes[rowNodeIds[r + 1][c1]];
+                    Point2D p01 = nodes[rowNodeIds[r + 1][c0]];
 
-                    for (int i = 0; i < quadNodes.Length; i++)
-                        AddNode(nodes, quadNodes[i]);
+                    var quadNodes = BuildQuadNodes(p00, p10, p11, p01, myElementBuilder.GetQuadName());
 
-                    elements.Add(new Element(nextElementId++, ElementPhase.Composite, config.MatrixQuadFxTType, quadNodes));
+                    for (int j = 0; j < quadNodes.Length; j++)
+                        AddNode(nodes, quadNodes[j]);
+
+                    elements.Add(new Element(nextElementId++, ElementPhase.Composite, myElementBuilder.GetQuadName(), quadNodes));
                 }
             }
         }
-
         private static int AddNode(List<Point2D> nodes, Point2D p)
         {
             for (int i = 0; i < nodes.Count; i++)
@@ -131,24 +170,25 @@ namespace FDEMCore.FxTMesh.Meshing
             return nodes.Count - 1;
         }
 
-        private static Point2D[] BuildQuadNodes(Point2D p0, Point2D p1, Point2D p2, Point2D p3, ElementConfig config)
+        private static Point2D[] BuildQuadNodes(Point2D p0, Point2D p1, Point2D p2, Point2D p3, string quadElementName)
         {
-            return config.MatrixQuadNodes switch
+            //remove the IPs
+            string elementType = quadElementName.Split('.')[0];
+
+            return elementType switch
             {
-                6 => BuildQuad6(p0, p1, p2, p3),
-                8 => BuildQuad8(p0, p1, p2, p3),
-                9 => BuildQuad9(p0, p1, p2, p3),
-                12 => BuildQuad12(p0, p1, p2, p3),
-                16 => BuildQuad16(p0, p1, p2, p3),
-                _ => throw new NotSupportedException($"Unsupported CrossPly quad order: {config.MatrixQuadNodes}")
+                "2DQ8" or "2P5DQ9" => BuildQuad8(p0, p1, p2, p3),
+
+                "2DQ9" or "2P5DQ10" => BuildQuad9(p0, p1, p2, p3),
+
+                "2DQ12" or "2P5DQ13" => BuildQuad12(p0, p1, p2, p3),
+
+                "2DQ16" or "2P5DQ17" => BuildQuad16(p0, p1, p2, p3),
+
+                _ => throw new NotSupportedException($"Unsupported CrossPly quad order: {quadElementName}")
             };
         }
 
-        private static Point2D[] BuildQuad6(Point2D p0, Point2D p1, Point2D p2, Point2D p3)
-        {
-            Point2D[] nodes = new[] { p0, ElementBuilderBase.Midpoint(p0, p1), p1, p3, ElementBuilderBase.Midpoint(p3, p2), p2 };
-            return ElementBuilderBase.EnsureCcwQuad6(nodes);
-        }
 
         private static Point2D[] BuildQuad8(Point2D p0, Point2D p1, Point2D p2, Point2D p3)
         {

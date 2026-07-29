@@ -100,7 +100,7 @@ namespace FxTMeshGenerator
                 // Step 2: Build finite element mesh from triangulation
                 var elementBuilder = new MeshBuilder();
                 var feMesh = elementBuilder.BuildMesh(triangulation,myInputFile.Packing.LFibers, myInputFile.Packing.Boundary,
-                    ElementConfig.Type2,myDebugOptions); // Pass debug output path
+                    FxTElementFamily.Type2, myDebugOptions); // Pass debug output path
 
                 stopWatch.Stop();
                 TimeSpan ts = stopWatch.Elapsed;

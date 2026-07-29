@@ -17,7 +17,7 @@ namespace FDEMCore
 
         //Meshing parameter
         public bool createFxTMesh = false;
-        public ElementConfig elConfig;
+        public FxTElementFamily elConfig;
         public bool isCrossPly = false;
         public double crossPlyThickness = 0;
         #endregion
@@ -124,8 +124,8 @@ namespace FDEMCore
             if (sInputs[0] == "FxTMesh")
             {
                 createFxTMesh = true;
-                FxTElementFamily elementFAmily = (FxTElementFamily)int.Parse(sInputs[1]);
-                elConfig = new ElementConfig { Family = elementFAmily };
+                FxTElementFamily elementFamily = (FxTElementFamily)int.Parse(sInputs[1]);
+				elConfig = elementFamily;
                 wasMeshingOption = true;
 
             }

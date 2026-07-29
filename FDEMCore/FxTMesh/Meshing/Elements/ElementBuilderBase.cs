@@ -6,6 +6,9 @@ namespace FDEMCore.FxTMesh.Meshing.Elements
 {
     public abstract class ElementBuilderBase : IElementBuilder
     {
+        public abstract int GetNNodesPerSideOfElement();
+        public abstract string GetQuadName();
+        public abstract string GetTriangleName();
         public abstract ElementBuildResult BuildInteriorMatrixTriangle(Point2D node0, Point2D node1, Point2D node2);
 
         public abstract ElementBuildResult BuildFiberTriangle(Point2D fiberCenter, Point2D surfaceNode1,

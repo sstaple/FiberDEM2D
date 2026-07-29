@@ -204,32 +204,22 @@ namespace FDEMCore.FxTMesh.IO
 
             return elementType switch
             {
-                "2DT3" => 5,
-                "2P5DT4" => 5,
+                "2DT3" or "2P5DT4" => 5,
 
-                "2DT6" => 22,
-                "2P5DT7" => 22,
+                "2DT6" or "2P5DT7" => 22,
 
-                "2DT9" => 69,   // fallback/check later if ParaView supports this
-                "2P5DT10" => 69,
+                "2DT9" or "2P5DT10" => 69,   // fallback/check later if ParaView supports this
 
-                "2DQ4" => 9,
-                "2P5DQ5" => 9,
+                "2DQ4" or "2P5DQ5" => 9,
+                "2DQ6" or "2P52DQ7" => 9,    // fallback visualization only
 
-                "2DQ6" => 9,    // fallback visualization only
-                "2P52DQ7" => 9,
+                "2DQ8" or "2P5DQ9" => 23,
 
-                "2DQ8" => 23,
-                "2P5DQ9" => 23,
+                "2DQ9" or  "2P5DQ10"=> 28,
 
-                "2DQ9" => 28,
-                "2P5DQ10" => 28,
+                "2DQ12" or "2P5DQ13"=> 70,   // fallback/check later
 
-                "2DQ12" => 70,   // fallback/check later
-                "2P5DQ13" => 70,
-
-                "2DQ16" => 70,   // fallback/check later
-                "2P5DQ17" => 70,
+                "2DQ16" or "2P5DQ17"=> 70,   // fallback/check later
 
                 _ => throw new NotSupportedException($"No VTK type for {elem.ElementName}")
             };

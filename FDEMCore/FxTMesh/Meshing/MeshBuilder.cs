@@ -23,7 +23,7 @@ namespace FDEMCore.FxTMesh.Meshing
         private IElementBuilder _elementBuilder;
 
         public FEMesh BuildMesh(TriangulationMesh2D triangulation,IReadOnlyList<Fiber> fibers,
-            CellBoundary boundary,ElementConfig config, DebugOptions? dOptions = null)
+            CellBoundary boundary,FxTElementFamily config, DebugOptions dOptions = null)
         {
             // Reset state
             _globalNodes.Clear();
@@ -843,7 +843,7 @@ namespace FDEMCore.FxTMesh.Meshing
 
 
         private void BuildBoundaryFiberMatrixElementsForFiberBoundaryPair(PeriodicFiberBoundaryPair pair,
-            TriangulationMesh2D triangulation, IReadOnlyList<Fiber> fibers,CellBoundary boundary, ElementConfig config)
+            TriangulationMesh2D triangulation, IReadOnlyList<Fiber> fibers,CellBoundary boundary, FxTElementFamily config)
         {
             var origTri = triangulation.Triangles[pair.OriginalTriangleIndex];
             var projTri = triangulation.Triangles[pair.ProjectedTriangleIndex];
@@ -908,7 +908,7 @@ namespace FDEMCore.FxTMesh.Meshing
         /// Based on MATLAB FE_Mesh.BuildInteriorFiberMatrixElements (lines 253-300).
         /// </summary>
         private void BuildInteriorFiberMatrixElements(TriangulationMesh2D triangulation, IReadOnlyList<Fiber> fibers,
-            ElementConfig config, DebugOptions? dOptions = null)
+            FxTElementFamily config, DebugOptions? dOptions = null)
         {
             // Find all shared edges and classify them
             var edgeDataList = FindSharedEdgesForFiberElements(triangulation, fibers, dOptions);
@@ -988,7 +988,7 @@ namespace FDEMCore.FxTMesh.Meshing
         /// Based on MATLAB FE_Mesh.BuildBoundaryFiberMatrixElements (lines 304-344).
         /// </summary>
         private void BuildBoundaryFiberMatrixElements(TriangulationMesh2D triangulation,
-            IReadOnlyList<Fiber> fibers, CellBoundary boundary, ElementConfig config,
+            IReadOnlyList<Fiber> fibers, CellBoundary boundary, FxTElementFamily config,
             DebugOptions? dOptions = null)
         {
             // Find all periodic fiber pairs (original fiber + projected fiber pairs that share a boundary edge)
@@ -1025,7 +1025,7 @@ namespace FDEMCore.FxTMesh.Meshing
         /// Creates 2 fiber elements and 1 quad matrix element connecting the original and projected triangles.
         /// </summary>
         private void BuildBoundaryFiberMatrixElementsForPair(PeriodicFiberPair pair, TriangulationMesh2D triangulation,
-            IReadOnlyList<Fiber> fibers, CellBoundary boundary, ElementConfig config)
+            IReadOnlyList<Fiber> fibers, CellBoundary boundary, FxTElementFamily config)
         {
             // Get the partner triangle's element nodes
             var origTri = triangulation.Triangles[pair.OriginalTriangleIndex];
@@ -1181,7 +1181,7 @@ namespace FDEMCore.FxTMesh.Meshing
         /// </summary>
         private void BuildFiberElementsForSharedEdge(Node[] triangle1Nodes, Node[] triangle2Nodes,
             Point2D[] triangle1ElementNodes, Point2D[] triangle2ElementNodes, Node[] sharedEdgeNodes,
-            IReadOnlyList<Fiber> fibers, ElementConfig config)
+            IReadOnlyList<Fiber> fibers, FxTElementFamily config)
         {
             var fiber1 = fibers[sharedEdgeNodes[0].FiberId];
             var fiber2 = fibers[sharedEdgeNodes[1].FiberId];
@@ -1230,7 +1230,7 @@ namespace FDEMCore.FxTMesh.Meshing
         /// </summary>
         private void BuildSingleFiberElement(Node[] triangle1Nodes, Node[] triangle2Nodes,
             Point2D[] triangle1ElementNodes, Point2D[] triangle2ElementNodes,
-            Node[] sharedEdgeNodes, IReadOnlyList<Fiber> fibers, ElementConfig config)
+            Node[] sharedEdgeNodes, IReadOnlyList<Fiber> fibers, FxTElementFamily config)
         {
             // Identify which node is the fiber and which is the boundary
             Node fiberNode;
@@ -1279,7 +1279,7 @@ namespace FDEMCore.FxTMesh.Meshing
         /// </summary>
         private void BuildQuadElementForSharedEdge(Node[] triangle1Nodes, Node[] triangle2Nodes,
             Point2D[] triangle1ElementNodes, Point2D[] triangle2ElementNodes, Node[] sharedEdgeNodes,
-            IReadOnlyList<Fiber> fibers, ElementConfig config)
+            IReadOnlyList<Fiber> fibers, FxTElementFamily config)
         {
             var fiber1 = fibers[sharedEdgeNodes[0].FiberId];
             var fiber2 = fibers[sharedEdgeNodes[1].FiberId];
@@ -1329,7 +1329,7 @@ namespace FDEMCore.FxTMesh.Meshing
         /// </summary>
         private void BuildTriangularMatrixElement(Node[] triangle1Nodes, Node[] triangle2Nodes,
             Point2D[] triangle1ElementNodes, Point2D[] triangle2ElementNodes, Node[] sharedEdgeNodes,
-            IReadOnlyList<Fiber> fibers, ElementConfig config)
+            IReadOnlyList<Fiber> fibers, FxTElementFamily config)
         {
             // Identify which node is the fiber and which is the boundary
             Node fiberNode, boundaryNode;
@@ -1401,7 +1401,7 @@ namespace FDEMCore.FxTMesh.Meshing
         }
 
         private void BuildMatrixInteriorTriangle(Node nodeA, Node nodeB, Node nodeC,IReadOnlyList<Fiber> fibers, 
-            ElementConfig config, DebugOptions? dOptions = null)
+            FxTElementFamily config, DebugOptions? dOptions = null)
         {
             // Calculate surface points on fibers for interior triangle
             var nodes = new Point2D[3];

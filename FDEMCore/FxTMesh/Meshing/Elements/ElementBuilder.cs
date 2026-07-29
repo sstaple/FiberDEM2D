@@ -10,6 +10,10 @@ namespace FDEMCore.FxTMesh.Meshing.Elements
 
     public interface IElementBuilder
     {
+        int GetNNodesPerSideOfElement();
+        string GetQuadName();
+        string GetTriangleName();
+
         ElementBuildResult BuildInteriorMatrixTriangle( Point2D node0, Point2D node1, Point2D node2);
 
         ElementBuildResult BuildFiberTriangle(Point2D fiberCenter, Point2D surfaceNode1,
@@ -30,22 +34,6 @@ namespace FDEMCore.FxTMesh.Meshing.Elements
         {
             ElementName = elementName;
             Nodes = nodes;
-        }
-    }
-
-    public static class ElementBuilderProvider
-    {
-        public static IElementBuilder Create(ElementConfig config)
-        {
-            return config.Family switch
-            {
-                FxTElementFamily.Type1 => new ElementBuilderType1(),
-                FxTElementFamily.Type2 => new ElementBuilderType2(),
-                FxTElementFamily.Type3 => new ElementBuilderType3(),
-                FxTElementFamily.Type4 => new ElementBuilderType4(),
-                FxTElementFamily.Type5 => new ElementBuilderType5(),
-                _ => throw new NotSupportedException()
-            };
         }
     }
 }
