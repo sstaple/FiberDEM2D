@@ -258,7 +258,7 @@ namespace FDEMCore.Contact.FailureTheories
 
         public MaxPrincStressZIntDNoDamage(double strength)
         {
-            nStateVariables = 0;
+            nStateVariables = 1;
             this.Strength = strength;
         }
 

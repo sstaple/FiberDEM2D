@@ -1,6 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
-using DelaunayTriangulator;
+//using DelaunayTriangulator;
 using NUnit.Framework;
 
 namespace FDEMTests

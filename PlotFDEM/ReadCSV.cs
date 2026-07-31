@@ -161,8 +161,10 @@ namespace PlotFDEM
                                 nPFiber = 0;
                             }
                             else { //Add projected fibers
-                                lProjFibers[nFiber - 1][nPFiber].Add(p1x, p1y, p1z, r, l, rot, true, true, true);
-                                nPFiber++;
+                                if (nPFiber < lProjFibers[nFiber - 1].Length) {
+                                    lProjFibers[nFiber - 1][nPFiber].Add(p1x, p1y, p1z, r, l, rot, true, true, true);
+                                    nPFiber++;
+                                }
                             }
 
                             break;

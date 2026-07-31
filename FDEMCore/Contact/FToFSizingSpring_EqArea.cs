@@ -6,58 +6,61 @@
  * 
  * To change this template use Tools | Options | Coding | Edit Standard Headers.
  */
-/*LOOK INTO THIS AGAIN IF DOING SOMETHING WITH SIZING.....
 using System;
-using myMath;
+using RandomMath;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Collections.Generic;
 using System.IO;
+using FDEMCore.Contact.MatrixModels;
 
-namespace FiberDEM.Contact
+namespace FDEMCore.Contact
 {
 	/// <summary>
 	/// This model is for the sizing where I make a beam/truss that has an equivalent area.  This was the first sizing model created.
+	/// Failure is evaluated modularly via an IFailureCriteria/MaterialModel pair (SizingTrussMaterialModel), the same
+	/// pattern used by FToFWithMatrix, so the criterion is configurable from the input deck (see *Sizing failureCriteriaNameSiz/failureConstantsSiz).
 	/// </summary>
 	public class FToFSizingSpring_EqArea : FToFBreakableSpring
 	{
-		
+
 		#region Private Members
-		//Defines Failure
-		protected double maxF;
-		protected double maxDL;  //This is the maximum possible dl that it can have in the normal direction (although it doesn't have to go this far)
-		protected bool isZeroForce; //Different than "isBroken" because it is only broken when BreakSizing() is called
-		protected double failureStress;
-		
 		protected double l0;
 		protected double relRotVel;
 		protected double rotSpring;
-		
-		protected double currentSizingStress;
+		protected double currentStress;
+
 		protected double xSectAreaEquivalent;
 		protected double initialCenterlineDist;
-		
+
+		protected SizingTrussMaterialModel materialModel;
+		protected double[] stateVariables;
+
 		#endregion
-		
+
 		#region Public Members
-		
-		
+
+
 		#endregion
-		
+
 		#region Constructors
 		public FToFSizingSpring_EqArea(double initialCenterlineDistance, SizingParameters inSizingParams, Fiber fiber1, Fiber fiber2, int nfiber1, int nfiber2)
 			: base(fiber1, fiber2, nfiber1, nfiber2)
 		{
 			this.initialCenterlineDist = initialCenterlineDistance;
 			l0 = initialCenterlineDistance - fiber1.Radius - fiber2.Radius;
-			failureStress = inSizingParams.MaxStress;
-			CalculateSizingKF(ref kn12, ref kt12, ref krot12, ref maxF, ref xSectAreaEquivalent, initialCenterlineDistance,
-				inSizingParams.E, inSizingParams.Nu, inSizingParams.MaxStress, f1.Radius, f2.Radius, f1.OLength);
-			maxDL = maxF / kn12;
+
+			double fmaxUnused = 0.0;
+			CalculateSizingKF(ref kn12, ref kt12, ref krot12, ref fmaxUnused, ref xSectAreaEquivalent, initialCenterlineDistance,
+				inSizingParams.E, inSizingParams.Nu, 0.0, f1.Radius, f2.Radius, f1.OLength);
+
+			materialModel = new SizingTrussMaterialModel(xSectAreaEquivalent, inSizingParams.FailureTheory);
+			stateVariables = new double[inSizingParams.FailureTheory.NStateVariables];
+
 			currentlyActive = true;
 			isBroken = false;
 			dCoefficient = inSizingParams.DampCoeff;
-			
+
 			sType = "Sizing";
 			rotSpring = 0.0;
 
@@ -95,56 +98,25 @@ namespace FiberDEM.Contact
 		
 		protected override void CalculateForcesAndMoments(){
 
-			//First calculate forces and moments:
+			//Always compute the mechanics -- failure is evaluated separately in BreakSpring().
+			//Note: this only sets normForceVect/tanForceVect/momentMag -- the base FToFSpring.ApplyForcesAndMoments()
+			//(called right after this by Spring.IsFoundToBeActive) is what actually adds these to f1/f2's
+			//CurrentForces/CurrentMoments, so we must not add them here too.
 			CalculateNormalForce();
+			normForceVect = VectorMath.ScalarMultiply(normForceMag, e12N_YZ);
 
+			//No tangential/shear spring is implemented for this simple truss element
+			tanForceMag = 0.0;
+			tanForceVect = new double[3];
 
-			#region Check to see if it broke
-
-			//TODO Change failure criteria??????  And make this it's own function
-			currentStress = stressFromForces(normForceMag, tanForceMag);
-			if (failureStress > currentStress && !isBroken)
-			{
-
-				#region Add the normal Force
-				fNorm = VectorMath.ScalarMultiply(normForceMag, e12N);
-				f1.currentForces.Add(VectorMath.DeepCopy(fNorm));
-				f2.currentForces.Add(VectorMath.ScalarMultiply(-1.0, fNorm));
-				#endregion
-
-				#region add Tangent Forces / Moments
-				//It's never slideing...
-				isSliding = false;
-
-				fTan = VectorMath.ScalarMultiply(tanForceMag, tan);
-
-				//Now Remove the x component for moment (moment only in yz plane)
-				double[] fTanYZ = new double[3] { 0, fTan[1], fTan[2] };
-				double fMom = VectorMath.VectorProduct(fTanYZ, e12N)[0];
-
-				AssignTanLoadToFiber(fMom, fTan, f1);               //Carsten
-				AssignTanLoadToFiber(fMom, VectorMath.ScalarMultiply(-1d, fTan), f2); //Carsten
-
-				#region Find Moment Due to rotation diff
-				relRotVel = f2.currentRotVel - f1.currentRotVel;
-				rotSpring = rotSpring + relRotVel * f1.Dt;
-				rotMom = rotSpring * krot;
-				f1.currentMoments.Add(rotMom);
-				f2.currentMoments.Add(-1.0 * rotMom);
-
-				#endregion
-				#endregion
-
-				isZeroForce = false;
-			}
-			else
-			{
-				isZeroForce = true;
-				normForceMag = 0.0;
-				tanForceMag = 0.0;
-				currentStress = 0.0;
-			}
+			#region Moment due to relative rotation (rotational spring)
+			relRotVel = f2.CurrentRotVel - f1.CurrentRotVel;
+			rotSpring = rotSpring + relRotVel * f1.Dt;
+			momentMag = rotSpring * krot12;
 			#endregion
+
+			//Track the axial stress for output/debugging (not used to gate forces)
+			currentStress = normForceMag / xSectAreaEquivalent;
 		}
 
 		protected override void IncrementInternalValues(){
@@ -164,7 +136,16 @@ namespace FiberDEM.Contact
 		#region public Methods
 		
 		public override bool BreakSpring(){
-			return false;
+			double[] q = new double[2] { normForceMag, tanForceMag };
+			bool hasFailure = materialModel.IsThereFailure(q, ref stateVariables);
+
+			if (hasFailure)
+			{
+				isBroken = true; //brittle for now: fails once -> fully broken.
+								  //When progressive damage is added, gate this on materialModel.IsItTotallyBroken(stateVariables) instead.
+			}
+
+			return isBroken;
 		}
 		
 		public override void SaveTimeStep(int iSaved, int iCurrent){
@@ -200,33 +181,6 @@ namespace FiberDEM.Contact
 			//These signs are for sure!!!!!!!
 		}
 		
-		protected void CalculatTanForce(){
-			//First rotate the previous spring
-			currentTanSpring = VectorMath.Subtract(currentTanSpring, VectorMath.ScalarMultiply(VectorMath.Dot(e12N_YZ, currentTanSpring), e12N_YZ));
-
-			//Now find the Tangent Force (using a spring)
-			tanForceVect = VectorMath.Add(VectorMath.ScalarMultiply(-1.0 * kt12, currentTanSpring), VectorMath.ScalarMultiply(-1.0 * dt12, vrelT));
-			tanForceMag = VectorMath.Norm(tanForceVect);
-			normTanF = VectorMath.DeepCopy(tanForceVect);
-			VectorMath.NormalizeVector(ref normTanF);
-
-			//Now check whether it's sliding
-			isSliding = false;
-
-			if (tanForceMag > stCOF * normForceMag)
-			{
-				//Dynamic friction
-				tanForceMag = dyCOF * normForceMag;
-				isSliding = true;
-			}
-			tanForceVect = VectorMath.ScalarMultiply(tanForceMag, normTanF);
-		}
-		
-		protected void CalculatMoment(){
-			double[] fRolling = VectorMath.Add(VectorMath.ScalarMultiply(-1.0 * kt12, currentTanSpring), VectorMath.ScalarMultiply(-1.0 * dt12, vRolling));
-			momentMag = VectorMath.Norm(fRolling);
-		}
-
 		public static void CalculateSizingKF(ref double k, ref double kT, ref double kR, ref double fmax, ref double xSectArea, double dist, double E, double nu, double maxStress, double r1, double r2, double lx){
 
 			double G = E / (2.0 * (1.0 + nu));
@@ -262,4 +216,3 @@ namespace FiberDEM.Contact
 		#endregion
 	}
 }
-*/

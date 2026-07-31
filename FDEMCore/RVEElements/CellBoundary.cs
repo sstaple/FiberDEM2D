@@ -333,8 +333,20 @@ namespace FDEMCore
             PointF LR = ToPoint(UndefXtoDefx(new double[3] { 0, 0, oDimensions[2] }));
 
             return new PointF[4] { LL, UL, UR, LR };
-        } 
-		public void WriteBackLeftCornerAndDimensions(StreamWriter dataWrite)
+        }
+
+        public double[][] Find2DCornersAtCurrentStrainDouble()
+        {
+            //TODO This is just 2-D, make it 3-D later!!!
+            double[] LL = new double[2] { 0.0, 0.0 };
+            double[] UL = UndefXtoDefx(new double[3] { 0, oDimensions[1], 0 });
+            double[] UR = UndefXtoDefx(new double[3] { 0, oDimensions[1], oDimensions[2] });
+            double[] LR = UndefXtoDefx(new double[3] { 0, 0, oDimensions[2] });
+
+            return new double[4][] { LL, new double[2] { UL[1], UL[2] }, new double[2] { UR[1], UR[2] }, new double[2] { LR[1], LR[2] } };
+        }
+
+        public void WriteBackLeftCornerAndDimensions(StreamWriter dataWrite)
 		{
 			double[] corner = leftBottomBackCorner;
 			dataWrite.WriteLine(String.Format("{0}, {1}, {2}, {3}, {4}, {5}",corner[0], corner[1], corner[2], oDimensions[0], oDimensions[1], oDimensions[2]) );

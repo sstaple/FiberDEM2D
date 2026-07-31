@@ -518,6 +518,7 @@ namespace FDEMCore
 		public bool saveFinalPositions = false;
 		public bool saveFinalPositionsWithoutProjections = false;
         public double RVEHOverW = 1.0;
+        public double RVEThickness = -1.0;
         public double contactDampingCoeff = 0.1;
 		public double globalDampingCoeff = 1.0;
 		public double increasingDampingCoeff = 0.001;
@@ -529,7 +530,6 @@ namespace FDEMCore
 		public bool doNotAllowOverlaps = false;
 		public bool saveConnectionPlot = false;
         public double minSpacingBetweenFiberAndSolidBoundary = 0.0;
-
 
         #endregion
 
@@ -555,13 +555,13 @@ namespace FDEMCore
 			double [] z = new double[6];
 
             //reset boundary
-            fiberParams.GetRVEBoundaryDimensions(out height, out width, nFibers, fVolFraction, RVEHOverW);
+            fiberParams.GetRVEBoundaryDimensions(out height, out width, nFibers, fVolFraction, RVEHOverW, RVEThickness);
 
             lFibers = SetRandomFibers(nDiv, cb, nFibers, height, width, squareMargin, fiberParams, out double marginSize);
 
 			//re-calculate the initial size of the boundary, then re-make the boundary.  Do this because when multiple radii are in play, the boundary needs to be adjusted a little
 			//To make the fiber volume fraction correct.
-			fParams.GetAndCheckRVEBoundaryDimension(out height, out width, lFibers, fVolFraction, RVEHOverW);
+			fParams.GetAndCheckRVEBoundaryDimension(out height, out width, lFibers, fVolFraction, RVEHOverW, RVEThickness);
 			
 			cb = new CellBoundary(new double[3] { fiberParams.l, width, height }, bottomLeftBackCorner, boundaryTypes : boundaryTypes);
 
@@ -576,7 +576,7 @@ namespace FDEMCore
 		protected override void SetNRows(int inNRows){
 
 			nFibers = isNRowsActuallyNFibers ? inNRows : inNRows * inNRows;
-			fiberParams.GetRVEBoundaryDimensions(out height, out width, nFibers, fVolFraction, RVEHOverW);
+			fiberParams.GetRVEBoundaryDimensions(out height, out width, nFibers, fVolFraction, RVEHOverW, RVEThickness);
 			
 		}
 		//Run Relaxation Analysis
@@ -740,7 +740,11 @@ namespace FDEMCore
 					myRanPack.RVEHOverW = Convert.ToDouble(temp[1]);
                     myRanPack.SetNRows(myRanPack.NRows);
                     break;
-				case "MaxSteps":
+                case "RVEThickness":
+                    myRanPack.RVEThickness = Convert.ToDouble(temp[1]);
+                    myRanPack.SetNRows(myRanPack.NRows);
+                    break;
+                case "MaxSteps":
                     myRanPack.nMaxSteps = Convert.ToInt32(temp[1]);
                     break;
                 case "UndampedSteps":
@@ -1019,8 +1023,8 @@ namespace FDEMCore
                 else
                 {
 					lFiberPositions.Add(new double[] { fParams.l/2.0, Convert.ToDouble(temp[0]), Convert.ToDouble(temp[1]) });
-					lFiberParams.Add(fParams);
-					lFiberParams[lFiberParams.Count - 1].l = Convert.ToDouble(temp[2]);
+					lFiberParams.Add(new FiberParameters(fParams));
+					lFiberParams[lFiberParams.Count - 1].R = Convert.ToDouble(temp[2]);
 				}
 			}
 
@@ -1031,7 +1035,7 @@ namespace FDEMCore
 			bottomLeftBackCorner = new double[3] { Convert.ToDouble(temp[0]), Convert.ToDouble(temp[1]), Convert.ToDouble(temp[2]) };
 			width = Convert.ToDouble(temp[4]);
 			height = Convert.ToDouble(temp[5]);
-			boundary = new CellBoundary(new double[3] { fiberParams.l, width, height }, bottomLeftBackCorner);
+			boundary = new CellBoundary(new double[3] { fiberParams.l, width, height }, bottomLeftBackCorner, new double[6], new double[6], boundaryTypes);
 			cb = boundary;
 
 			dataRead.Close();

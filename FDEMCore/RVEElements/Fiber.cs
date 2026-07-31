@@ -77,8 +77,12 @@ namespace FDEMCore
 		public Fiber(double[] initialPosition, FiberParameters inFParams, CellBoundary cellBoundary)
 			: this(initialPosition, inFParams.R, inFParams.E1, inFParams.E2, inFParams.nu23, inFParams.nu12, inFParams.G12, inFParams.l, inFParams.m, inFParams.globalD, cellBoundary)
 		{
-			
-		}
+            //set gravity if the gravity vector in fiberParams is not null
+            if (inFParams.GravityVector != null)
+            {
+                this.GravityVector = inFParams.GravityVector;
+            }
+        }
 		public Fiber(double [] initialPosition, double r, double E1, double E2, double nu23, double nu12, double G12, double l, double m, double globalD, CellBoundary cellBoundary)
 			:base(initialPosition, m, E1, E2, nu12, nu23, G12)
 		{
@@ -108,6 +112,9 @@ namespace FDEMCore
 
 			//base.KglobalRotate = Math.PI * Math.Pow(radius,4) * base.modulus1 /
 			//	(4.0 * oLength * (1.0 + base.nu));
+
+			//set gravity if the gravity vector in fiberParams is not 0
+			//
 		}
 		public Fiber(double [] initialPosition, FiberParameters inFParams, CellBoundary cellBoundary, double [] initialVelocity, double initialRotVel)
 			:this(initialPosition, inFParams, cellBoundary)

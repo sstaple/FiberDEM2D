@@ -92,23 +92,28 @@ namespace FDEMCore
 		public double E;
 		public double Nu;
 		public double MaxDist;
-		public double MaxStress;
 		public double DampCoeff;
+		public IFailureCriteria FailureTheory;
 		protected int nFirstAnalysis;
 		public double Probability;
 		//Constants for the iNonContactSpringParameters
 		public int NAnalysisToCreateSprings{get {return nFirstAnalysis;}}
 		public bool OverrideContactSearch{get {return false;}}
 		#endregion
-		public SizingParameters(double inE, double inNu, double inMaxDist, double inMaxStress, double inProbability, double inDampCoeff, int inNFirstAnalysis)
+		/// <summary>
+		/// failureCriteriaName/failureConstants follow the same convention as MatrixAssemblyParameters
+		/// (e.g. failureCriteriaName = "MaxPrincipalStress", failureConstants = "20" for a 20 MPa critical stress).
+		/// </summary>
+		public SizingParameters(double inE, double inNu, double inMaxDist, double inProbability, double inDampCoeff, int inNFirstAnalysis,
+			string failureCriteriaName, string failureConstants)
 		{
 			MaxDist = inMaxDist;
 			E = inE;
 			Nu = inNu;
-			MaxStress = inMaxStress;
 			DampCoeff = inDampCoeff;
 			nFirstAnalysis = inNFirstAnalysis;
 			Probability = inProbability;
+			FailureTheory = CreateFailureCriteria.CreateFailureCriteriaFromInput(failureCriteriaName, failureConstants);
 		}
 	}
 	
@@ -131,16 +136,22 @@ namespace FDEMCore
 		public string modelConstants;
 		//just for debugging....
 		public bool dontMakeProjections = false;
+		//Gates whether a matrix spring gets created between two triangulated fibers in FDEMMatrixMeshing:
+		//DMax is the maximum surface-to-surface distance allowed to create a spring, and MatrixProbability
+		//is the probability (0-1) that a spring is created even if within DMax (mirrors SizingParameters.MaxDist/Probability).
+		public double DMax = double.MaxValue;
+		public double MatrixProbability = 1.0;
 		//Constants for the iNonContactSpringParameters
 		public int NAnalysisToCreateSprings{get {return nFirstAnalysis;}}
 		public bool OverrideContactSearch{get {return true;}}
 		#endregion
-		
+
 		/// <summary>
 		/// For model name: options are: "MatrixContinuumElasticFibers", "MatrixContinuum"
 		/// </summary>
 		public MatrixAssemblyParameters(double inE, double inNu, double inDampCoeff, int inNFirstAnalysis, double inCharDist, 
-			string inModelName, string modelConstants, string FailureCriteriaName, string failureConstants)
+			string inModelName, string modelConstants, string FailureCriteriaName, string failureConstants,
+			double inDMax = double.MaxValue, double inMatrixProbability = 1.0)
 		{
 			E = inE;
 			Nu = inNu;
@@ -149,6 +160,8 @@ namespace FDEMCore
 			FailureTheory = CreateFailureCriteria.CreateFailureCriteriaFromInput(FailureCriteriaName, failureConstants);
 			DampCoeff = inDampCoeff;
 			nFirstAnalysis = inNFirstAnalysis;
+			DMax = inDMax;
+			MatrixProbability = inMatrixProbability;
 			CharDist = inCharDist;
 			Ep = E/((1 + Nu)*(1 - 2*Nu));
 			G = E/(2*(1 + Nu));
@@ -163,7 +176,7 @@ namespace FDEMCore
 	public class FiberParameters
 	{
 		#region Public Members
-
+		
 		public virtual double R
         {
 			get { return r; }
@@ -188,6 +201,7 @@ namespace FDEMCore
 		public double G12;
 		public double rho;
 		public double globalD;
+		public double[] GravityVector;
 		#endregion
 		public FiberParameters(FiberParameters fiberParamsToCopy)
 		{
@@ -201,6 +215,7 @@ namespace FDEMCore
 			G12 = fiberParamsToCopy.G12;
 			globalD = fiberParamsToCopy.globalD;
 			nu23 = fiberParamsToCopy.nu23;
+			GravityVector = fiberParamsToCopy.GravityVector;
 		}
 
 		public FiberParameters(double radius, double linearDensity, double length, double AxialModulus,
@@ -233,14 +248,15 @@ namespace FDEMCore
 			globalD = globalDamping;
 		}
 
-		public virtual void GetRVEBoundaryDimensions(out double h, out double w, int nFibers, double fiberVolumeFraction, double RVEHoW = 1.0)
+		public virtual void GetRVEBoundaryDimensions(out double h, out double w, int nFibers, double fiberVolumeFraction, double RVEHoW = 1.0, double RVEThickness = -1.0)
         {
 			double totalArea = nFibers * (Math.PI * r * r) / fiberVolumeFraction;
-			h = Math.Sqrt(totalArea * RVEHoW);
-			w = h / RVEHoW;
-           // return Math.Sqrt(nFibers * (Math.PI * r * r) / fiberVolumeFraction); //NRows * 2 * r * 2;
-		}
-		public void GetAndCheckRVEBoundaryDimension(out double h, out double w, List<Fiber> lFibers, double fiberVolumeFraction, double hoverw = 1.0)
+			h = (RVEThickness > 0) ? RVEThickness : Math.Sqrt(totalArea * RVEHoW);
+            w = totalArea / h;
+
+            // return Math.Sqrt(nFibers * (Math.PI * r * r) / fiberVolumeFraction); //NRows * 2 * r * 2;
+        }
+		public void GetAndCheckRVEBoundaryDimension(out double h, out double w, List<Fiber> lFibers, double fiberVolumeFraction, double hoverw = 1.0, double RVEThickness = -1.0)
         {
 			double fiberArea = 0;
             foreach (Fiber f in lFibers)
@@ -248,8 +264,8 @@ namespace FDEMCore
 				fiberArea += f.Radius * f.Radius * Math.PI;
             }
             double totalArea = fiberArea / fiberVolumeFraction;
-            h = Math.Sqrt(totalArea * hoverw);
-            w = h / hoverw;
+            h = (RVEThickness > 0) ? RVEThickness : Math.Sqrt(totalArea * hoverw);
+            w = totalArea / h;
         }
 	}
 
@@ -304,7 +320,7 @@ namespace FDEMCore
 			return radius;
         }
 
-        public override void GetRVEBoundaryDimensions(out double h, out double w, int nFibers, double fiberVolumeFraction, double RVEHoW = 1.0)
+        public override void GetRVEBoundaryDimensions(out double h, out double w, int nFibers, double fiberVolumeFraction, double RVEHoW = 1.0, double RVEThickness = -1.0)
         {
 			double areaOfFibers = 0;
 
@@ -314,8 +330,8 @@ namespace FDEMCore
             }
 
             double totalArea = areaOfFibers / fiberVolumeFraction;
-            h = Math.Sqrt(totalArea * RVEHoW);
-            w = h / RVEHoW;
-		}
+            h = (RVEThickness > 0) ? RVEThickness : Math.Sqrt(totalArea * RVEHoW);
+            w = w = totalArea / h;
+        }
 	}
 }

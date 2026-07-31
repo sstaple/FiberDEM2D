@@ -320,7 +320,7 @@ namespace FDEMCore.Contact.MatrixModels
                     KmmInverse = MatrixMath.InvertMatrix(Kmm);  
                     Keq = MatrixMath.Subtract(Kff, MatrixMath.Multiply(Kfm, MatrixMath.Multiply(KmmInverse, Kmf)));
                 }
-                catch (Exception e)
+                catch (Exception)
                 {
                     if (KmmInverse == null)
                     {

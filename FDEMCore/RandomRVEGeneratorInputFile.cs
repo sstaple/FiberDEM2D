@@ -1,5 +1,11 @@
 ﻿
+using FDEMCore.FxTMesh;
+using FDEMCore.FxTMesh.Meshing;
+using FxTMeshGenerator.IO;
 using System;
+using System.Diagnostics;
+using System.IO;
+
 
 namespace FDEMCore
 {
@@ -8,6 +14,12 @@ namespace FDEMCore
 
 		#region public members
 		public RandomPack Packing;
+
+        //Meshing parameter
+        public bool createFxTMesh = false;
+        public FxTElementFamily elConfig;
+        public bool isCrossPly = false;
+        public double crossPlyThickness = 0;
         #endregion
 
         #region private members
@@ -56,7 +68,13 @@ namespace FDEMCore
 			//Now go through all of the optional arguments
 			while (temp[0] != "*END")
 			{
-				RandomPack.ReadAndSetRandomPackingOptions(temp, Packing);
+                if (CheckForMeshingOptions(temp))
+                {
+                    //if it was a meshing option, then we don't want to try to read it as a packing option, so just move on to the next line
+                    temp = NextLine();
+                    continue;
+                }
+                RandomPack.ReadAndSetRandomPackingOptions(temp, Packing);
 				temp = NextLine();
 			}
 
@@ -73,13 +91,52 @@ namespace FDEMCore
 
 				//set the packing: for the random run, this re-sets the packing;
 				Packing.SetPacking(outParams);
-			}
+
+				if(createFxTMesh)
+                {
+                    DebugOptions debugOptions = new DebugOptions
+                    {
+                        Debug = true,
+                        Directory = outParams.DirName,
+                        FileName = outParams.FileName + outParams.FileIndex
+                    };
+
+                    FEMesh myMesh = FxTMesh.FxTMeshGenerator.GenerateFromPack(Packing, debugOptions, null, elConfig);
+
+                    if (isCrossPly)
+                    {
+                        myMesh = CrossPlyMeshAugmenter.AddZCrossPly(myMesh, Packing.Boundary, crossPlyThickness, elConfig, debugOptions);
+                    }
+
+                    FxTInputDeckWriter.WriteMeshDeck(outputDirectory: Path.Combine(dirName, sFileName + outParams.FileIndex + "_FxT"),
+                        mesh: myMesh, boundary: Packing.Boundary);
+                }
+            }
 		}
 
 		#endregion
 
 		#region Private Methods
-		
+		private bool CheckForMeshingOptions(string[] sInputs)
+		{
+			bool wasMeshingOption = false;
+
+            if (sInputs[0] == "FxTMesh")
+            {
+                createFxTMesh = true;
+                FxTElementFamily elementFamily = (FxTElementFamily)int.Parse(sInputs[1]);
+				elConfig = elementFamily;
+                wasMeshingOption = true;
+
+            }
+			else if (sInputs[0] == "CrossPly")
+            {
+                isCrossPly = true;
+                crossPlyThickness = Convert.ToDouble(sInputs[1]);
+				wasMeshingOption = true;
+            }
+			return wasMeshingOption;
+        }
 
 		#endregion
 	}
