@@ -92,23 +92,28 @@ namespace FDEMCore
 		public double E;
 		public double Nu;
 		public double MaxDist;
-		public double MaxStress;
 		public double DampCoeff;
+		public IFailureCriteria FailureTheory;
 		protected int nFirstAnalysis;
 		public double Probability;
 		//Constants for the iNonContactSpringParameters
 		public int NAnalysisToCreateSprings{get {return nFirstAnalysis;}}
 		public bool OverrideContactSearch{get {return false;}}
 		#endregion
-		public SizingParameters(double inE, double inNu, double inMaxDist, double inMaxStress, double inProbability, double inDampCoeff, int inNFirstAnalysis)
+		/// <summary>
+		/// failureCriteriaName/failureConstants follow the same convention as MatrixAssemblyParameters
+		/// (e.g. failureCriteriaName = "MaxPrincipalStress", failureConstants = "20" for a 20 MPa critical stress).
+		/// </summary>
+		public SizingParameters(double inE, double inNu, double inMaxDist, double inProbability, double inDampCoeff, int inNFirstAnalysis,
+			string failureCriteriaName, string failureConstants)
 		{
 			MaxDist = inMaxDist;
 			E = inE;
 			Nu = inNu;
-			MaxStress = inMaxStress;
 			DampCoeff = inDampCoeff;
 			nFirstAnalysis = inNFirstAnalysis;
 			Probability = inProbability;
+			FailureTheory = CreateFailureCriteria.CreateFailureCriteriaFromInput(failureCriteriaName, failureConstants);
 		}
 	}
 	
@@ -131,16 +136,22 @@ namespace FDEMCore
 		public string modelConstants;
 		//just for debugging....
 		public bool dontMakeProjections = false;
+		//Gates whether a matrix spring gets created between two triangulated fibers in FDEMMatrixMeshing:
+		//DMax is the maximum surface-to-surface distance allowed to create a spring, and MatrixProbability
+		//is the probability (0-1) that a spring is created even if within DMax (mirrors SizingParameters.MaxDist/Probability).
+		public double DMax = double.MaxValue;
+		public double MatrixProbability = 1.0;
 		//Constants for the iNonContactSpringParameters
 		public int NAnalysisToCreateSprings{get {return nFirstAnalysis;}}
 		public bool OverrideContactSearch{get {return true;}}
 		#endregion
-		
+
 		/// <summary>
 		/// For model name: options are: "MatrixContinuumElasticFibers", "MatrixContinuum"
 		/// </summary>
 		public MatrixAssemblyParameters(double inE, double inNu, double inDampCoeff, int inNFirstAnalysis, double inCharDist, 
-			string inModelName, string modelConstants, string FailureCriteriaName, string failureConstants)
+			string inModelName, string modelConstants, string FailureCriteriaName, string failureConstants,
+			double inDMax = double.MaxValue, double inMatrixProbability = 1.0)
 		{
 			E = inE;
 			Nu = inNu;
@@ -149,6 +160,8 @@ namespace FDEMCore
 			FailureTheory = CreateFailureCriteria.CreateFailureCriteriaFromInput(FailureCriteriaName, failureConstants);
 			DampCoeff = inDampCoeff;
 			nFirstAnalysis = inNFirstAnalysis;
+			DMax = inDMax;
+			MatrixProbability = inMatrixProbability;
 			CharDist = inCharDist;
 			Ep = E/((1 + Nu)*(1 - 2*Nu));
 			G = E/(2*(1 + Nu));

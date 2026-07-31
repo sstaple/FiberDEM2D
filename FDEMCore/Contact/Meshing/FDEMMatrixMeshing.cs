@@ -19,6 +19,7 @@ namespace FDEMCore.Contact.Meshing
         {
 
             CellWall[] cw = cb.Walls;
+            System.Random myRanNumber = new System.Random();
 
             //Erase any old springs, so that only matrix is active.
             lSprings = new List<FToFRelation>();
@@ -55,9 +56,12 @@ namespace FDEMCore.Contact.Meshing
                     //Original RVE: make a spring!
                     if (pairs[i][1] < n)
                     {
-                        lSprings.Add(new FToFRelation(conParams, lFibers[pairs[i][0]], lFibers[pairs[i][1]], pairs[i][0], pairs[i][1]));
+                        if (IsMatrixSpringAllowed(lFibers[pairs[i][0]], lFibers[pairs[i][1]], matrixParams, myRanNumber))
+                        {
+                            lSprings.Add(new FToFRelation(conParams, lFibers[pairs[i][0]], lFibers[pairs[i][1]], pairs[i][0], pairs[i][1]));
 
-                        lSprings[lSprings.Count - 1].AddNonContactSpring(matrixParams);
+                            lSprings[lSprings.Count - 1].AddNonContactSpring(matrixParams);
+                        }
                     }
                     //Directly to the right (proj of cw[2]), index 1 for projections)
                     else if (pairs[i][1] >= n && pairs[i][1] < 2 * n)
@@ -66,9 +70,12 @@ namespace FDEMCore.Contact.Meshing
                         lMatrixProjFibers.Add(new MatrixProjectedFiber(nFiber, 0));
                         //lFibers[nFiber].AddProjectedFiber(cw[2].PeriodicProjection, false, new int[] { 2 });
                         lFibers[nFiber].AddProjectedFiber(cw[2].PeriodicProjection, new int[] { 2 });
-                        lSprings.Add(new FToFRelation(conParams, lFibers[pairs[i][0]], lFibers[nFiber], pairs[i][0], nFiber));
+                        if (IsMatrixSpringAllowed(lFibers[pairs[i][0]], lFibers[nFiber], matrixParams, myRanNumber))
+                        {
+                            lSprings.Add(new FToFRelation(conParams, lFibers[pairs[i][0]], lFibers[nFiber], pairs[i][0], nFiber));
 
-                        lSprings[lSprings.Count - 1].AddNonContactSpring(matrixParams);
+                            lSprings[lSprings.Count - 1].AddNonContactSpring(matrixParams);
+                        }
                     }
                     //Directly above (proj of cw[4], index 3 for projections)
                     else if (pairs[i][1] >= 3 * n && pairs[i][1] < 4 * n)
@@ -76,9 +83,12 @@ namespace FDEMCore.Contact.Meshing
                         int nFiber = pairs[i][1] - 3 * n;
                         lMatrixProjFibers.Add(new MatrixProjectedFiber(nFiber, 1));
                         lFibers[nFiber].AddProjectedFiber(cw[4].PeriodicProjection, new int[] { 4 });
-                        lSprings.Add(new FToFRelation(conParams, lFibers[pairs[i][0]], lFibers[nFiber], pairs[i][0], nFiber));
+                        if (IsMatrixSpringAllowed(lFibers[pairs[i][0]], lFibers[nFiber], matrixParams, myRanNumber))
+                        {
+                            lSprings.Add(new FToFRelation(conParams, lFibers[pairs[i][0]], lFibers[nFiber], pairs[i][0], nFiber));
 
-                        lSprings[lSprings.Count - 1].AddNonContactSpring(matrixParams);
+                            lSprings[lSprings.Count - 1].AddNonContactSpring(matrixParams);
+                        }
                     }
                     //above and to the right (proj of cw[2] + cw[4], index 5 for projections)
                     else if (pairs[i][1] >= 5 * n && pairs[i][1] < 6 * n)
@@ -87,9 +97,12 @@ namespace FDEMCore.Contact.Meshing
                         lMatrixProjFibers.Add(new MatrixProjectedFiber(nFiber, 2));
                         double[] tempProj = VectorMath.Add(cw[2].PeriodicProjection, cw[4].PeriodicProjection);
                         lFibers[nFiber].AddProjectedFiber(tempProj, new int[] { 2, 4 });
-                        lSprings.Add(new FToFRelation(conParams, lFibers[pairs[i][0]], lFibers[nFiber], pairs[i][0], nFiber));
+                        if (IsMatrixSpringAllowed(lFibers[pairs[i][0]], lFibers[nFiber], matrixParams, myRanNumber))
+                        {
+                            lSprings.Add(new FToFRelation(conParams, lFibers[pairs[i][0]], lFibers[nFiber], pairs[i][0], nFiber));
 
-                        lSprings[lSprings.Count - 1].AddNonContactSpring(matrixParams);
+                            lSprings[lSprings.Count - 1].AddNonContactSpring(matrixParams);
+                        }
                     }
                     //above and to the left (proj of cw[3] + cw[4], index 7 for projections), ends up as index 3
                     else if (pairs[i][1] >= 7 * n && pairs[i][1] < 8 * n)
@@ -98,9 +111,12 @@ namespace FDEMCore.Contact.Meshing
                         lMatrixProjFibers.Add(new MatrixProjectedFiber(nFiber, 3));
                         double[] tempProj = VectorMath.Add(cw[3].PeriodicProjection, cw[4].PeriodicProjection);
                         lFibers[nFiber].AddProjectedFiber(tempProj, new int[] { 3, 4 });
-                        lSprings.Add(new FToFRelation(conParams, lFibers[pairs[i][0]], lFibers[nFiber], pairs[i][0], nFiber));
+                        if (IsMatrixSpringAllowed(lFibers[pairs[i][0]], lFibers[nFiber], matrixParams, myRanNumber))
+                        {
+                            lSprings.Add(new FToFRelation(conParams, lFibers[pairs[i][0]], lFibers[nFiber], pairs[i][0], nFiber));
 
-                        lSprings[lSprings.Count - 1].AddNonContactSpring(matrixParams);
+                            lSprings[lSprings.Count - 1].AddNonContactSpring(matrixParams);
+                        }
                     }
                 }
             }
@@ -210,7 +226,19 @@ namespace FDEMCore.Contact.Meshing
             }
 
         }
-       
+
+        /// <summary>
+        /// Gates whether a matrix spring should be created between two fibers: checks the surface-to-surface
+        /// distance against DMax, and applies MatrixProbability as a random chance of creation (mirrors the
+        /// sizing spring gating in FToFRelation.AddNonContactSpring(SizingParameters, double)).
+        /// </summary>
+        static private bool IsMatrixSpringAllowed(Fiber f1, Fiber f2, MatrixAssemblyParameters matrixParams, System.Random ranNumber)
+        {
+            double distanceBetweenCenters = FToFSpring.GetMinYZDistanceBetweenFibersIncludingProjections(f1, f2);
+            double dBetweenFibers = distanceBetweenCenters - f1.Radius - f2.Radius;
+            return dBetweenFibers < matrixParams.DMax && matrixParams.MatrixProbability > ranNumber.NextDouble();
+        }
+
         static public MyPoint[] AddAllFiberProjectionsToPoints(List<Fiber> lFibers, CellWall[] cw)
         {
             //put fiber positions into list

@@ -10,6 +10,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using FDEMCore.Contact;
+using FDEMCore.Contact.FailureTheories;
 
 namespace FDEMCore
 {
@@ -80,7 +81,7 @@ namespace FDEMCore
 			string expCons = "";
 			double [] maxStrain = new double[6];
             //Have to initiate these since the initiation is done in a switch loop
-            INonContactSpringParameters nCSpringParams = new SizingParameters(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1);
+            INonContactSpringParameters nCSpringParams = new SizingParameters(0.0, 0.0, 0.0, 0.0, 0.0, 1, NoFailure.Name, "");
 			FiberParameters fiberParams = new FiberParameters(1.0, 1.0, 1.0, 1.0, 1.0, 1.0,0.0);
 			ContactParameters conParams = new ContactParameters(1.0, 1.0, 1.0, 1.0);
 			outParams = new OutputParameters(" ", false, false, false, false);
@@ -150,16 +151,19 @@ namespace FDEMCore
 							double rho = Convert.ToDouble(temp[1]);
 							temp = NextLine();
 							double dGlobal = Convert.ToDouble(temp[1]);
-                            //if the next line is not "*..." then it is the gravity vector, otherwise it is the end of the fiber section
+							//if the next line is not "*..." then it is the gravity vector, otherwise it is the end of the fiber section
 							temp = NextLineEvenComments();
-                            fiberParams = new FiberParameters(r, rho, l, E1, E2, nu12, nu23, G23, dGlobal);
-                            if (!temp[0].Contains("*"))
-                            {
-                                string[] stemp = temp[1].Split(',');
-                                double[] gravityVector = new double[3] { Convert.ToDouble(stemp[0]), Convert.ToDouble(stemp[1]), Convert.ToDouble(stemp[2]) };
+							fiberParams = new FiberParameters(r, rho, l, E1, E2, nu12, nu23, G23, dGlobal);
+							if (!temp[0].Contains("*"))
+							{
+								string[] stemp = temp[1].Split(',');
+								double[] gravityVector = new double[3] { Convert.ToDouble(stemp[0]), Convert.ToDouble(stemp[1]), Convert.ToDouble(stemp[2]) };
 								fiberParams.GravityVector = gravityVector;
-                            }
-                            
+							}
+							else
+							{
+								PushBackLine(temp); //Not optional data: it's the next section header, so hand it back
+							}
 							break;
 							#endregion
 						case "*Contact":
@@ -178,8 +182,6 @@ namespace FDEMCore
 							#region
 							double dMaxSiz = Convert.ToDouble(temp[1]);
 							temp = NextLine();
-							double maxStressSiz = Convert.ToDouble(temp[1]);
-							temp = NextLine();
 							double ESiz = Convert.ToDouble(temp[1]);
 							temp = NextLine();
 							double NuSiz = Convert.ToDouble(temp[1]);
@@ -189,7 +191,12 @@ namespace FDEMCore
 							int nAnalysSiz = Convert.ToInt32(temp[1]);
 							temp = NextLine();
 							double probSiz = Convert.ToDouble(temp[1]);
-							nCSpringParams = new SizingParameters(ESiz, NuSiz, dMaxSiz, maxStressSiz, probSiz, dSiz, nAnalysSiz);
+							temp = NextLine();
+							string failureCriteriaNameSiz = temp[1];
+							temp = NextLine();
+							string failureConstantsSiz = temp[1];
+							nCSpringParams = new SizingParameters(ESiz, NuSiz, dMaxSiz, probSiz, dSiz, nAnalysSiz,
+								failureCriteriaNameSiz, failureConstantsSiz);
 							hasSizing = true;
 							break;
 							#endregion
@@ -212,8 +219,23 @@ namespace FDEMCore
 							string failureCriteriaName = temp[1];
 							temp = NextLine();
 							string failureConstants = temp[1];
+							//Optional sparse-matrix meshing controls: distance cutoff and creation probability.
+							//Default to "always create" (dense matrix) if not specified, to preserve old input files.
+							double dMaxMat = double.MaxValue;
+							double matrixProbability = 1.0;
+							temp = NextLineEvenComments();
+							if (!temp[0].Contains("*"))
+							{
+								dMaxMat = Convert.ToDouble(temp[1]);
+								temp = NextLine();
+								matrixProbability = Convert.ToDouble(temp[1]);
+							}
+							else
+							{
+								PushBackLine(temp); //Not optional data: it's the next section header, so hand it back
+							}
 							nCSpringParams = new MatrixAssemblyParameters(EMat, NuMat, dMat, nAnalysisMat, charDistance, modelName, modelConstants,
-								failureCriteriaName, failureConstants);
+								failureCriteriaName, failureConstants, dMaxMat, matrixProbability);
 							hasMatrix = true;
 							break;
 							#endregion
@@ -274,19 +296,23 @@ namespace FDEMCore
 								PackingFromFile myOutFilePacking = (PackingFromFile)myPacking;
 								myOutFilePacking.filename = Path.Combine(dirName, temp[1]);
 
-                                temp = NextLineEvenComments();
+								temp = NextLineEvenComments();
 								if(temp[0].Contains("BoundaryTypes"))
 								{
-                                    string[] temp2 = temp[1].Split('/');
-                                    myOutFilePacking.BoundaryTypes[1] = temp2[0] == "s" ? BoundaryType.Solid : BoundaryType.Periodic;
-                                    myOutFilePacking.BoundaryTypes[2] = temp2[1] == "s" ? BoundaryType.Solid : BoundaryType.Periodic;
-                                }
-                            }
+									string[] temp2 = temp[1].Split('/');
+									myOutFilePacking.BoundaryTypes[1] = temp2[0] == "s" ? BoundaryType.Solid : BoundaryType.Periodic;
+									myOutFilePacking.BoundaryTypes[2] = temp2[1] == "s" ? BoundaryType.Solid : BoundaryType.Periodic;
+								}
+								else
+								{
+									PushBackLine(temp); //Not optional data: hand it back for the next section
+								}
+							}
 							if (packingType == "Random")
-                            {
-                                temp = NextLineEvenComments();
-                                RandomPack myRanPack = (RandomPack)myPacking;
-                                
+							{
+								temp = NextLineEvenComments();
+								RandomPack myRanPack = (RandomPack)myPacking;
+
 								while (!temp[0].Contains("**"))
 								{
 									RandomPack.ReadAndSetRandomPackingOptions(temp, myRanPack);
@@ -359,7 +385,6 @@ namespace FDEMCore
 			double minM = fiberParams.m * Mscale;
 			double dtmin = Analysis.MaxDT(minM, maxK, conParams.ContactDamping);
 
-			/* reinstate this when sizing is reinstated
 			//Now check sizing:
 			if (hasSizing) {
 				double kSiz = 0.0;
@@ -369,15 +394,14 @@ namespace FDEMCore
 				double area=0.0;
 				//TODO This assumes all fibers are the same size.  Would have to find what the max k is for fibers not of the same size (max and min methods)
 				SizingParameters sizParams = nCSpringParams as SizingParameters;
-				
+
 				Contact.FToFSizingSpring_EqArea.CalculateSizingKF(ref kSiz, ref kT, ref kr, ref Fmax, ref area, fiberParams.R * 2.0, sizParams.E, sizParams.Nu,
-				                                           sizParams.MaxStress, fiberParams.R, fiberParams.R, fiberParams.l);
+														   0.0, fiberParams.R, fiberParams.R, fiberParams.l);
 				double tempdt = Analysis.MaxDT(minM, kSiz, sizParams.DampCoeff);
 				if (tempdt < dtmin) {
 					dtmin = tempdt;
 				}
 			}
-			*/
 			//Now check matrix time steps:
 			if (hasMatrix) {
 				MatrixAssemblyParameters matrixParams = nCSpringParams as MatrixAssemblyParameters;
@@ -648,15 +672,28 @@ namespace FDEMCore
 
         #endregion
 
-        #region Private Methods
-        protected string [] NextLine(){
+		#region Private Methods
+		//Holds a line that was read ahead (peeked) but turned out not to belong to the current section,
+		//so it can be handed back out on the next call instead of being silently discarded.
+		private Stack<string[]> pushedBackLines = new Stack<string[]>();
+
+		/// <summary>
+		/// Pushes a line back so the next call to NextLine()/NextLineEvenComments() returns it again.
+		/// Use this when a section optionally reads ahead to check for trailing data and finds that the
+		/// line actually belongs to the next section (or is otherwise not consumable here).
+		/// </summary>
+		protected void PushBackLine(string[] line){
+			pushedBackLines.Push(line);
+		}
+
+		protected string [] NextLine(){
 			bool bComment = true;
 			string [] temp = new string[1];
 			//Keep reading lines until it is not a comment line
 			while (bComment) {
-				
+
 				temp = NextLineEvenComments();
-				
+
 				if (!temp[0].Contains("**")) {
 					bComment = false;
 				}
@@ -665,18 +702,22 @@ namespace FDEMCore
 		}
 
 		protected string [] NextLineEvenComments(){
-			
+
+			if (pushedBackLines.Count > 0) {
+				return pushedBackLines.Pop();
+			}
+
 			char[] charsToTrim = {',', '.', ' '};
-			
+
 			string tempLine = dataRead.ReadLine();
 			tempLine = tempLine.Replace(" ", ""); //Get rid of empty spaces
-			
+
 			tempLine = tempLine.TrimEnd(charsToTrim);
 			string[] temp = tempLine.Split('\t');
-			
+
 			return temp;
 		}
-		
+
 		#endregion
 	}
 }

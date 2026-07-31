@@ -27,6 +27,11 @@ namespace FDEMCore.Contact
 		private SizingParameters sizParams;
 		private bool hasSizing=false;
 		private System.Random myRanNumber;
+		//Sizing springs represent the as-packed contact network and should only ever be created once,
+		//during the very first contact search of the analysis that introduces sizing. Without this flag,
+		//any fiber pair that comes into range on a later time step (as fibers move) would also get a
+		//sizing spring attached, which is not physically correct.
+		private bool sizingSpringsCanStillBeCreated=true;
 		
 		
 		#endregion
@@ -117,8 +122,11 @@ namespace FDEMCore.Contact
 				}
 			}
 			#endregion
-			
-			
+
+			//After the very first contact search, sizing creation is closed off: from this point on,
+			//no new fiber pair should ever be given a sizing spring, even if it comes into range later.
+			sizingSpringsCanStillBeCreated = false;
+
 			//This is to permanantly break the springs
 			if (hasSizing && bCanSizingBreak) {
 				foreach (FToFRelation ftof in lSprings) {
@@ -294,18 +302,23 @@ namespace FDEMCore.Contact
 					
 					//Now separate into types, if there is a spring already, update it.  If not, create one.
 					int sIndex = 0;
-					
+					bool isNewRelation = false;
+
 					if (nFiberSprings[nF1, nF] == -1) {
 						lSprings.Add(new FToFRelation(contactParams, (Fiber)f1, f2, nF1, nF));
-						
+
 						sIndex = lSprings.Count - 1;
 						nFiberSprings[nF1, nF] = sIndex;
 						nFiberSprings[nF, nF1] = sIndex;
+						isNewRelation = true;
 					}
 					sIndex = nFiberSprings[nF1, nF];
-					//Add sizing if it has it and is a sizing run
-					if (hasSizing) {
-						
+					//Add sizing if it has it and is a sizing run. Only attempt this once per fiber pair (on creation),
+					//and only during the very first contact search of the analysis (sizingSpringsCanStillBeCreated),
+					//otherwise sizing springs would keep being created as new fiber pairs come into range later,
+					//which is not physically correct and would also wipe out any accumulated spring history/state.
+					if (hasSizing && isNewRelation && sizingSpringsCanStillBeCreated) {
+
 						lSprings[sIndex].AddNonContactSpring(sizParams, myRanNumber.NextDouble());
 					}
 					lSprings[sIndex].Update(tIndex, dT);

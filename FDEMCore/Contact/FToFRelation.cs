@@ -98,11 +98,14 @@ namespace FDEMCore.Contact
         }
 
 		/// <summary>
-		/// This checks the distance between the two, and makes siizing if they are close enough
+		/// This checks the distance between the two, and makes sizing if they are close enough.
+		/// Only creates the sizing spring once per fiber pair -- once created (even if later broken),
+		/// it must not be recreated, or its accumulated history/state (and any progressive damage) would be lost.
 		/// </summary>
-		/// //TODO: Put this into the sizing parameters part
 		public void AddNonContactSpring(SizingParameters inSizParams, double ranNum){
-			
+
+			if (breakableSpring != null) { return; } //Already created (or already broken): don't recreate it.
+
 			//First, get the distance between the two
 			double distanceBetweenCenters = FToFSpring.GetMinYZDistanceBetweenFibersIncludingProjections(f1, f2);
 			double dBetweenFibers = distanceBetweenCenters - f1.Radius - f2.Radius;
@@ -112,10 +115,7 @@ namespace FDEMCore.Contact
 				if (dBetweenFibers <= 0.0) {
 					distanceBetweenCenters = f1.Radius + f2.Radius;
 				}
-				/* reinstate if sizing ever gets fixed....
 				breakableSpring = new FToFSizingSpring_EqArea(distanceBetweenCenters, inSizParams, f1, f2, nf1, nf2);
-				*/
-				//TODO Make a new instantiation here
 			}
 		}
 		//Add sizing for the matrix
