@@ -65,7 +65,7 @@ namespace FxTMeshGenerator.Tests
                         var nodes1 = tri1.Select(idx => mesh.Nodes[idx]).ToArray();
                         var nodes2 = tri2.Select(idx => mesh.Nodes[idx]).ToArray();
 
-                        if (nodes1.All(n => n.FiberId.HasValue) && nodes2.All(n => n.FiberId.HasValue))
+                        if (nodes1.All(n => n.FiberId >= 0) && nodes2.All(n => n.FiberId >= 0))
                         {
                             tri1Idx = i;
                             tri2Idx = j;
@@ -607,13 +607,13 @@ namespace FxTMeshGenerator.Tests
             for (int i = 0; i < triangles.Count; i++)
             {
                 var tri1 = triangles[i];
-                if (!tri1.All(idx => nodes[idx].FiberId.HasValue))
+                if (!tri1.All(idx => nodes[idx].FiberId >= 0))
                     continue;
 
                 for (int j = i + 1; j < triangles.Count; j++)
                 {
                     var tri2 = triangles[j];
-                    if (!tri2.All(idx => nodes[idx].FiberId.HasValue))
+                    if (!tri2.All(idx => nodes[idx].FiberId >= 0))
                         continue;
 
                     var shared = tri1.Intersect(tri2).ToArray();

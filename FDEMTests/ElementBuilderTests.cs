@@ -210,13 +210,13 @@ namespace FDEMTests
             {
                 new Node(new Point2D(0, 0), 0, NodeType.FiberCenter, (0, 0)),
                 new Node(new Point2D(1, 0), 1, NodeType.FiberCenter, (0, 0)),
-                new Node(boundaryPoint, null, NodeType.BoundaryPoint, (0, 0))
+                new Node(boundaryPoint, -1, NodeType.BoundaryPoint, (0, 0))
             };
 
             var triangles = new List<int[]> { new[] { 0, 1, 2 } };
             var triangulation = new TriangulationMesh2D(nodes, triangles);
 
-            var config = new ElementConfig();
+            var config = FxTElementFamily.Type2;
             var builder = new MeshBuilder();
             var mesh = builder.BuildMesh(triangulation, fibers, boundary, config);
 
@@ -264,14 +264,14 @@ namespace FDEMTests
             var nodes = new List<Node>
             {
                 new Node(new Point2D(0.5, 0.5), 0, NodeType.FiberCenter, (0, 0)),
-                new Node(boundaryPoint1, null, NodeType.BoundaryPoint, (0, 0)),
-                new Node(boundaryPoint2, null, NodeType.BoundaryCorner, (0, 0))
+                new Node(boundaryPoint1, -1, NodeType.BoundaryPoint, (0, 0)),
+                new Node(boundaryPoint2, -1, NodeType.BoundaryCorner, (0, 0))
             };
 
             var triangles = new List<int[]> { new[] { 0, 1, 2 } };
             var triangulation = new TriangulationMesh2D(nodes, triangles);
 
-            var config = new ElementConfig();
+            var config = FxTElementFamily.Type2;
             var builder = new  MeshBuilder();
 
             // Act
@@ -318,16 +318,16 @@ namespace FDEMTests
             // Create nodes for triangulation
             var nodes = new List<Node>
             {
-                new Node(boundaryPoint1, null, NodeType.BoundaryCorner, (0, 0)),
-                new Node(boundaryPoint2, null, NodeType.BoundaryCorner, (0, 0)),
-                new Node(boundaryPoint3, null, NodeType.BoundaryPoint, (0, 0))
+                new Node(boundaryPoint1, -1, NodeType.BoundaryCorner, (0, 0)),
+                new Node(boundaryPoint2, -1, NodeType.BoundaryCorner, (0, 0)),
+                new Node(boundaryPoint3, -1, NodeType.BoundaryPoint, (0, 0))
             };
 
             var triangles = new List<int[]> { new[] { 0, 1, 2 } };
             var triangulation = new TriangulationMesh2D(nodes, triangles);
 
             var boundary = CreateTestBoundary();
-            var config = new ElementConfig();
+            var config = FxTElementFamily.Type2;
             var builder = new MeshBuilder();
 
             // Act
@@ -380,7 +380,7 @@ namespace FDEMTests
             var triangles = new List<int[]> { new[] { 0, 1, 2 } };
             var triangulation = new TriangulationMesh2D(nodes, triangles);
 
-            var config = new ElementConfig();
+            var config = FxTElementFamily.Type2;
             var builder = new MeshBuilder();
 
             // Act
@@ -420,9 +420,9 @@ namespace FDEMTests
             var nodes = new List<Node>
             {
                 new Node(new Point2D(0.5, 0.5), 0, NodeType.FiberCenter, (0, 0)),  // node 0: fiber
-                new Node(new Point2D(0, 0), null, NodeType.BoundaryCorner, (0, 0)), // node 1: boundary
-                new Node(new Point2D(1, 0), null, NodeType.BoundaryCorner, (0, 0)), // node 2: boundary
-                new Node(new Point2D(0.5, 1.0), null, NodeType.BoundaryPoint, (0, 0)) // node 3: boundary
+                new Node(new Point2D(0, 0), -1, NodeType.BoundaryCorner, (0, 0)), // node 1: boundary
+                new Node(new Point2D(1, 0), -1, NodeType.BoundaryCorner, (0, 0)), // node 2: boundary
+                new Node(new Point2D(0.5, 1.0), -1, NodeType.BoundaryPoint, (0, 0)) // node 3: boundary
             };
 
             // Triangle 1: fiber (0), boundary (1), boundary (2)
@@ -435,7 +435,7 @@ namespace FDEMTests
             };
 
             var triangulation = new TriangulationMesh2D(nodes, triangles);
-            var config = new ElementConfig();
+            var config = FxTElementFamily.Type2;
             var builder = new MeshBuilder();
 
             // Act
@@ -473,10 +473,10 @@ namespace FDEMTests
             var nodes = new List<Node>
             {
                 new Node(new Point2D(0.5, 0.5), 0, NodeType.FiberCenter, (0, 0)),
-                new Node(new Point2D(0, 0), null, NodeType.BoundaryCorner, (0, 0)),
-                new Node(new Point2D(1, 0), null, NodeType.BoundaryCorner, (0, 0)),
-                new Node(new Point2D(0.5, 1.0), null, NodeType.BoundaryPoint, (0, 0)),
-                new Node(new Point2D(0, 1.0), null, NodeType.BoundaryCorner, (0, 0))
+                new Node(new Point2D(0, 0), -1, NodeType.BoundaryCorner, (0, 0)),
+                new Node(new Point2D(1, 0), -1, NodeType.BoundaryCorner, (0, 0)),
+                new Node(new Point2D(0.5, 1.0), -1, NodeType.BoundaryPoint, (0, 0)),
+                new Node(new Point2D(0, 1.0), -1, NodeType.BoundaryCorner, (0, 0))
             };
 
             var triangles = new List<int[]> 
@@ -487,7 +487,7 @@ namespace FDEMTests
             };
 
             var triangulation = new TriangulationMesh2D(nodes, triangles);
-            var config = new ElementConfig();
+            var config = FxTElementFamily.Type2;
             var builder = new MeshBuilder();
 
             // Act
@@ -521,7 +521,7 @@ namespace FDEMTests
                 new Node(new Point2D(0.3, 0.5), 0, NodeType.FiberCenter, (0, 0)),  // node 0: fiber1
                 new Node(new Point2D(0.7, 0.5), 1, NodeType.FiberCenter, (0, 0)),  // node 1: fiber2
                 new Node(new Point2D(0.5, 0.2), 2, NodeType.FiberCenter, (0, 0)),  // node 2: fiber3
-                new Node(new Point2D(0.5, 0.8), null, NodeType.BoundaryPoint, (0, 0)) // node 3: boundary
+                new Node(new Point2D(0.5, 0.8), -1, NodeType.BoundaryPoint, (0, 0)) // node 3: boundary
             };
 
             var triangles = new List<int[]> 
@@ -532,7 +532,7 @@ namespace FDEMTests
             };
 
             var triangulation = new TriangulationMesh2D(nodes, triangles);
-            var config = new ElementConfig();
+            var config = FxTElementFamily.Type2;
             var builder = new MeshBuilder();
 
             // Act
@@ -580,7 +580,7 @@ namespace FDEMTests
             };
 
             var triangulation = new TriangulationMesh2D(nodes, triangles);
-            var config = new ElementConfig();
+            var config = FxTElementFamily.Type2;
             var builder = new MeshBuilder();
 
             // Act
@@ -649,7 +649,7 @@ namespace FDEMTests
             };
 
             var triangulation = new TriangulationMesh2D(nodes, triangles);
-            var config = new ElementConfig();
+            var config = FxTElementFamily.Type2;
             var builder = new MeshBuilder();
 
             // Act

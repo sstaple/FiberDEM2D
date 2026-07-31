@@ -1,4 +1,4 @@
-﻿
+
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -108,7 +108,7 @@ namespace FxTMeshGenerator.Tests
                 triangulationMesh,
                 fibers,
                 boundary,
-                ElementConfig.Type2);
+                FxTElementFamily.Type2);
 
             // Write the full mesh
             VtkLegacyWriter.WriteUnstructuredMesh(vtkMeshPath, feMesh);
@@ -145,13 +145,13 @@ namespace FxTMeshGenerator.Tests
                 var nodeC = nodes[tri[2]];
 
                 // Only check triangles with three fiber nodes
-                if (nodeA.FiberId.HasValue && nodeB.FiberId.HasValue && nodeC.FiberId.HasValue)
+                if (nodeA.FiberId >= 0 && nodeB.FiberId >= 0 && nodeC.FiberId >= 0)
                 {
                     var triadFibers = new[]
                     {
-                        fibers[nodeA.FiberId.Value],
-                        fibers[nodeB.FiberId.Value],
-                        fibers[nodeC.FiberId.Value]
+                        fibers[nodeA.FiberId],
+                        fibers[nodeB.FiberId],
+                        fibers[nodeC.FiberId]
                     };
 
                     var nodePositions = new[]
@@ -163,9 +163,9 @@ namespace FxTMeshGenerator.Tests
                     /*
                     var triad = new Triad(i, triadFibers, nodePositions);
                     triad.SetEdgesWithFiberIndices(
-                        nodeA.FiberId.Value,
-                        nodeB.FiberId.Value,
-                        nodeC.FiberId.Value);
+                        nodeA.FiberId,
+                        nodeB.FiberId,
+                        nodeC.FiberId);
 
                     if (triad.DetermineIfFibersOverlapTriad())
                     {
@@ -236,14 +236,14 @@ namespace FxTMeshGenerator.Tests
                 var tri1 = trianglesList[i];
 
                 // Skip if not all fiber nodes
-                if (!tri1.All(idx => nodes[idx].FiberId.HasValue))
+                if (!tri1.All(idx => nodes[idx].FiberId >= 0))
                     continue;
 
                 for (int j = i + 1; j < trianglesList.Count; j++)
                 {
                     var tri2 = trianglesList[j];
 
-                    if (!tri2.All(idx => nodes[idx].FiberId.HasValue))
+                    if (!tri2.All(idx => nodes[idx].FiberId >= 0))
                         continue;
 
                     // Check for shared edge
@@ -359,14 +359,14 @@ namespace FxTMeshGenerator.Tests
             {
                 var tri1 = trianglesList[i];
 
-                if (!tri1.All(idx => nodes[idx].FiberId.HasValue))
+                if (!tri1.All(idx => nodes[idx].FiberId >= 0))
                     continue;
 
                 for (int j = i + 1; j < trianglesList.Count; j++)
                 {
                     var tri2 = trianglesList[j];
 
-                    if (!tri2.All(idx => nodes[idx].FiberId.HasValue))
+                    if (!tri2.All(idx => nodes[idx].FiberId >= 0))
                         continue;
 
                     var shared = tri1.Intersect(tri2).ToArray();
