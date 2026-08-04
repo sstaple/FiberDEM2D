@@ -633,6 +633,33 @@ namespace PlotFDEM
 
         public void Draw(Graphics graphic, int nTimeStep, double maxForce)
         {
+            // Backward-compatible overload (used for the regular Contact plot): 0 -> maxForce, default scheme
+            Draw(graphic, nTimeStep, 0.0, maxForce, null);
+        }
+
+        public void Draw(Graphics graphic, int nTimeStep, double lowRange, double highRange)
+        {
+            Draw(graphic, nTimeStep, lowRange, highRange, null);
+        }
+
+        public void Draw(Graphics graphic, int nTimeStep, double lowRange, double highRange, Color[] colorScheme)
+        {
+            Draw(graphic, nTimeStep, lowRange, highRange, colorScheme, true, (float)penThick, null, null);
+        }
+
+        /// <summary>
+        /// Draws the sizing/contact line for the given time step.
+        /// </summary>
+        /// <param name="lowRange">Value mapped to the low (first) end of the color scheme.</param>
+        /// <param name="highRange">Value mapped to the high (last) end of the color scheme.</param>
+        /// <param name="colorScheme">Colors to interpolate between (low to high). Null uses DefaultColorScheme.</param>
+        /// <param name="scaleThicknessByForce">If true, line thickness is scaled 0-fixedThickness by the fraction of range. If false, thickness is always fixedThickness.</param>
+        /// <param name="fixedThickness">The thickness used when not scaling by force (or the max thickness when scaling).</param>
+        /// <param name="aboveRangeColor">If set, used instead of the scheme's top color when the value exceeds highRange.</param>
+        /// <param name="belowRangeColor">If set, used instead of the scheme's bottom color when the value is below lowRange.</param>
+        public void Draw(Graphics graphic, int nTimeStep, double lowRange, double highRange, Color[] colorScheme,
+            bool scaleThicknessByForce, float fixedThickness, Color? aboveRangeColor, Color? belowRangeColor)
+        {
             if (lIndexes.Contains(nTimeStep))
             {
 
@@ -641,14 +668,29 @@ namespace PlotFDEM
 
                 int index = lIndexes.IndexOf(nTimeStep);
 
-                float pensize = (float)(penThick);
-                //float pensize = (float)penThick;
-                //Color myCol = ColorFromHSV(240 - 240 * (lForce[index] / maxForce), 1d, 1d);
+                double range = highRange - lowRange;
+                double rawFrac = range > 0 ? (Math.Abs(lForce[index]) - lowRange) / range : 0.0;
+                double clampedFrac = Math.Max(0.0, Math.Min(1.0, rawFrac));
+
                 Color myCol = Color.Black;
+                float pensize = fixedThickness;
+
                 if (!isBroken)
                 {
-                    myCol = ColorFromArgb_RYG(Math.Abs(lForce[index]) / maxForce);
-                    pensize = (float)(penThick * (Math.Abs(lForce[index]) / maxForce));
+                    if (rawFrac > 1.0 && aboveRangeColor.HasValue)
+                    {
+                        myCol = aboveRangeColor.Value;
+                    }
+                    else if (rawFrac < 0.0 && belowRangeColor.HasValue)
+                    {
+                        myCol = belowRangeColor.Value;
+                    }
+                    else
+                    {
+                        myCol = ColorFromScheme(clampedFrac, colorScheme);
+                    }
+
+                    pensize = scaleThicknessByForce ? (float)(fixedThickness * clampedFrac) : fixedThickness;
                 }
 
                 //Color myCol = Color.PaleGoldenrod;
@@ -658,6 +700,59 @@ namespace PlotFDEM
                 fiberBrush.Dispose(); //TODO figure something to draw between projected fibers, this is just for 2-D
             }
         }
+
+        /// <summary>
+        /// The default 5-stop color scheme (Blue -&gt; Turquoise -&gt; Lawn Green -&gt; Yellow -&gt; Red)
+        /// used to color sizing/contact lines from low to high value.
+        /// </summary>
+        public static Color[] DefaultColorScheme = new Color[]
+        {
+            Color.FromArgb(65, 105, 225),   // Royal Blue
+            Color.FromArgb(64, 224, 208),   // Turquoise
+            Color.FromArgb(175, 255, 47),   // Lawn Green
+            Color.FromArgb(255, 230, 0),    // Yellow
+            Color.FromArgb(255, 0, 0)       // Red
+        };
+
+        /// <summary>
+        /// Interpolates a color from a scheme (list of colors, low to high) given a value from 0 to 1.
+        /// If scheme is null or empty, falls back to DefaultColorScheme.
+        /// </summary>
+        public static Color ColorFromScheme(double value, Color[] scheme)
+        {
+            if (scheme == null || scheme.Length == 0)
+            {
+                scheme = DefaultColorScheme;
+            }
+            if (scheme.Length == 1)
+            {
+                return scheme[0];
+            }
+
+            value = Math.Max(0.0, Math.Min(1.0, value));
+
+            double n = scheme.Length - 1.0;
+            int indexBelow = (int)Math.Floor(value * n);
+            if (indexBelow >= scheme.Length - 1)
+            {
+                indexBelow = scheme.Length - 2;
+            }
+            int indexAbove = indexBelow + 1;
+
+            double xBelow = indexBelow / n;
+            double xAbove = indexAbove / n;
+
+            int r = (int)LinearInterpolation(value, xBelow, xAbove, scheme[indexBelow].R, scheme[indexAbove].R);
+            int g = (int)LinearInterpolation(value, xBelow, xAbove, scheme[indexBelow].G, scheme[indexAbove].G);
+            int b = (int)LinearInterpolation(value, xBelow, xAbove, scheme[indexBelow].B, scheme[indexAbove].B);
+
+            r = Math.Max(0, Math.Min(255, r));
+            g = Math.Max(0, Math.Min(255, g));
+            b = Math.Max(0, Math.Min(255, b));
+
+            return Color.FromArgb(255, r, g, b);
+        }
+
         public static Color ColorFromHSV(double hue, double saturation, double value)
         {
             int hi = Convert.ToInt32(Math.Floor(hue / 60)) % 6;

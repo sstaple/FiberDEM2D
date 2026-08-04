@@ -32,13 +32,26 @@ namespace PlotFDEM
 		public double maxSizingForce;
 		public double maxContactForce;
 
-        //Do I need these for anything?  I don't think so.....
-        public float ScaleFactor = 1f;
-        public float TranslateX;
-        public float TranslateY;
-		
+		//New: legend-controlled settings for the sizing plot
+		public bool AutomaticSizingRange = true;
+		public double SizingLowRange = 0.0;
+		public double SizingHighRange;
+		public Color[] SizingColorScheme = Contact.DefaultColorScheme;
+		public bool ScaleSizingThicknessByForce = true;
+		public float FixedSizingThickness = 2f;
+		public Color? SizingAboveRangeColor = null;
+		public Color? SizingBelowRangeColor = null;
+		public Color FiberColor = Color.FromArgb(230, 80, 90, 90);
+		public Color ProjFiberColor = Color.FromArgb(230, 50, 60, 60);
+		public Color BoundaryColor = Color.White;
 
-        public CreatePlot(bool showContact, bool showVelocity, bool colorFiberVel, bool showSizing)
+		//Do I need these for anything?  I don't think so.....
+		public float ScaleFactor = 1f;
+		public float TranslateX;
+		public float TranslateY;
+
+
+		public CreatePlot(bool showContact, bool showVelocity, bool colorFiberVel, bool showSizing)
 		{
 			bShowContact = showContact;
 			bShowSizing = showSizing;
@@ -54,12 +67,14 @@ namespace PlotFDEM
 			results = myData.results;
 			maxSizingForce = myData.maxSizingForce;
 			maxContactForce = myData.maxContactForce;
-			
-			
+
+			SizingHighRange = maxSizingForce;
+
+
 			//Get the boundaries
 			float[] corners = boundary.FindExtremeCorners();
 			myAnimation = new Animation.AnimatedPlot(this, results.lPointList, results.Labels, myData.fileName, "Iterations", "Stress/Strain",
-			                                                                corners[0], corners[1], corners[2], corners[3]);
+																			corners[0], corners[1], corners[2], corners[3]);
 			//Find the maximum velocity for all fibers at all time steps
 			if (bShowVelocity||bColorFiberVel) {
 				foreach (Fiber f in lFibers) {
@@ -67,50 +82,62 @@ namespace PlotFDEM
 				}
 			}
 		}
+
+		/// <summary>
+		/// Allows an external window (e.g. the sizing legend) to force a repaint of the current frame
+		/// after changing colors/ranges, without altering the current animation frame.
+		/// </summary>
+		public void RefreshPlot()
+		{
+			myAnimation?.RedrawCurrentFrame();
+		}
+
 		public void Draw(Graphics graphic, int i){
-			
+
 			//Color the background
 			//graphic.Clear( Color.FromArgb(230,47,214,63));
-			
+
 			if (bShowSizing) {
+				double low = AutomaticSizingRange ? 0.0 : SizingLowRange;
+				double high = AutomaticSizingRange ? maxSizingForce : SizingHighRange;
 				foreach (Contact sp in lSizing) {
-					//sp.ContactScaleFactor = (Max(homogenizedStress) / lFibers.Count * cBoundary.ODimensions[1] * cBoundary.ODimensions[2]*200);//TODO Get some scaling method that makes more sense Math.Abs(homogenizedStress.Max());
-					sp.Draw(graphic, i, maxSizingForce); //Add transform???
+					sp.Draw(graphic, i, low, high, SizingColorScheme, ScaleSizingThicknessByForce, FixedSizingThickness,
+							SizingAboveRangeColor, SizingBelowRangeColor); //Add transform???
 				}
 			}
-			
+
 			if (bShowContact) {
 				foreach (Contact sp in lContacts) {
 					//sp.ContactScaleFactor = (Max(homogenizedStress) / lFibers.Count * cBoundary.ODimensions[1] * cBoundary.ODimensions[2]*200);//TODO Get some scaling method that makes more sense Math.Abs(homogenizedStress.Max());
 					sp.Draw(graphic, i, maxContactForce); //Add transform???
 				}
 			}
-			
+
 			//draw the fibers
 			foreach (Fiber[] fi in lProjFibers) {
 				foreach (Fiber f in fi) {
-					f.Draw(graphic, i, Color.FromArgb(230,50, 60, 60));//DarkerGray//220,220,220));//50, 60, 60));//DarkerGray //Color.DodgerBlue); //Add transform???
+					f.Draw(graphic, i, ProjFiberColor);//dark grey //Add transform???
 				}
 			}
 			foreach (Fiber fi in lFibers) {
-				fi.Draw(graphic, i, Color.FromArgb(230,80, 90, 90));//dark grey//240,240,240)); //Color.DodgerBlue); //Add transform???
+				fi.Draw(graphic, i, FiberColor); //Add transform???
 			}
-			
-			
+
+
 			if (bShowVelocity) {
 				foreach (Fiber f in lFibers) {
 					f.DrawVelocity(graphic, i);
 				}
 			}
-			
+
 			if (bColorFiberVel) {
 				foreach (Fiber fi in lFibers) {
 					fi.DrawVelFiber(graphic, i);
 				}
 			}
-			
-			boundary.Draw(graphic, i, Color.White); //Add transform???
-			
+
+			boundary.Draw(graphic, i, BoundaryColor); //Add transform???
+
 		}
 
 		public bool IsClosed()

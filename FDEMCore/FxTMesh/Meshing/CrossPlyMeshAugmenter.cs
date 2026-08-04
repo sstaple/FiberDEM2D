@@ -64,6 +64,9 @@ namespace FDEMCore.FxTMesh.Meshing
                 IO.VtkLegacyWriter.WriteUnstructuredMesh(dOptions.GetDebugFilePath("AllMeshPlusCrossPly"), fullMesh);
             }
 
+            //Now add the thickness of the layer to the ODimensions
+            boundary.ODimensions[2] += 2 * thickness;
+
             return new FEMesh(nodes, elements, periodicData.Pairs, periodicData.X1Nodes, periodicData.Y1Nodes,
                 periodicData.PinnedNode);
         }

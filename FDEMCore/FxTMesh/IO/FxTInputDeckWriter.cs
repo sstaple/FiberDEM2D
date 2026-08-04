@@ -90,7 +90,7 @@ namespace FxTMeshGenerator.IO
             {
                 writer.WriteLine("FxT.pinned");
                 writer.WriteLine(mesh.PinnedNode.Value + 1);
-                writer.WriteLine();
+                //writer.WriteLine();
             }
 
             if (mesh.X1Nodes.Count > 0)
@@ -98,7 +98,7 @@ namespace FxTMeshGenerator.IO
                 writer.WriteLine("FxT.x1");
                 foreach (int nodeIndex in mesh.X1Nodes)
                     writer.WriteLine(nodeIndex + 1);
-                writer.WriteLine();
+                //writer.WriteLine();
             }
 
             if (mesh.Y1Nodes.Count > 0)
@@ -113,10 +113,13 @@ namespace FxTMeshGenerator.IO
         {
             var statistics = new
             {
-                Lx = 1.0,
+                Lx = boundary.ODimensions[0],
                 Ly = boundary.ODimensions[1],
                 Lz = boundary.ODimensions[2]
             };
+
+            //Now check for periodicity in each direction.  If it isn't periodic, then we need to add the wall thickness to the corresponding dimension.
+
 
             var options = new JsonSerializerOptions
             {

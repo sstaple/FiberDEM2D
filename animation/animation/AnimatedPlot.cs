@@ -162,6 +162,15 @@ namespace Animation
 			//ShowDialog ();
 			this.Focus();	
 		}
+
+		/// <summary>
+		/// Forces a repaint of the currently displayed frame without changing the frame index.
+		/// Useful for external windows (e.g. a legend) that change how the drawer renders the frame.
+		/// </summary>
+		public void RedrawCurrentFrame()
+		{
+			pMainFrame?.Invalidate();
+		}
 		#endregion
 		
 		#region Form Events

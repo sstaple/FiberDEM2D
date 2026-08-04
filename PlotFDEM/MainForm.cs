@@ -59,7 +59,11 @@ namespace PlotFDEM
 		void BSizingPlotClick(object sender, EventArgs e)
 		{
 			CheckIfAnyWindowsClosed();
-			lCreatePlot.Add(new CreatePlot(false, false, false, true));
+			CreatePlot plot = new CreatePlot(false, false, false, true);
+			lCreatePlot.Add(plot);
+
+			SizingLegendForm legend = new SizingLegendForm(plot);
+			legend.Show();
 		}
 
         private void bMatrixContinuumPlot_Click(object sender, EventArgs e)

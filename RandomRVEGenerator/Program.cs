@@ -30,7 +30,7 @@ namespace RandomRVEGenerator
 					Filter = "TXT Files (*.txt*)|*.txt*",
 					FilterIndex = 2,
 					RestoreDirectory = true,
-					InitialDirectory = Directory.GetCurrentDirectory()
+					//InitialDirectory = Directory.GetCurrentDirectory()
 				};
 
 				if (openFldr.ShowDialog() == DialogResult.OK)
