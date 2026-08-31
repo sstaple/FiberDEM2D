@@ -21,6 +21,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "PlotFDEM", "PlotFDEM\PlotFD
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FxTMeshGenerator", "FxTMeshGenerator\FxTMeshGenerator.csproj", "{0BE61D13-028E-49B3-B38C-98689C7ACB66}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FDEMPython", "FDEMPython\FDEMPython.csproj", "{6E692AB9-3190-4881-BEA3-E77624E0B264}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -139,6 +141,18 @@ Global
 		{0BE61D13-028E-49B3-B38C-98689C7ACB66}.Release|x64.Build.0 = Release|Any CPU
 		{0BE61D13-028E-49B3-B38C-98689C7ACB66}.Release|x86.ActiveCfg = Release|Any CPU
 		{0BE61D13-028E-49B3-B38C-98689C7ACB66}.Release|x86.Build.0 = Release|Any CPU
+		{6E692AB9-3190-4881-BEA3-E77624E0B264}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6E692AB9-3190-4881-BEA3-E77624E0B264}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6E692AB9-3190-4881-BEA3-E77624E0B264}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{6E692AB9-3190-4881-BEA3-E77624E0B264}.Debug|x64.Build.0 = Debug|Any CPU
+		{6E692AB9-3190-4881-BEA3-E77624E0B264}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{6E692AB9-3190-4881-BEA3-E77624E0B264}.Debug|x86.Build.0 = Debug|Any CPU
+		{6E692AB9-3190-4881-BEA3-E77624E0B264}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6E692AB9-3190-4881-BEA3-E77624E0B264}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6E692AB9-3190-4881-BEA3-E77624E0B264}.Release|x64.ActiveCfg = Release|Any CPU
+		{6E692AB9-3190-4881-BEA3-E77624E0B264}.Release|x64.Build.0 = Release|Any CPU
+		{6E692AB9-3190-4881-BEA3-E77624E0B264}.Release|x86.ActiveCfg = Release|Any CPU
+		{6E692AB9-3190-4881-BEA3-E77624E0B264}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
