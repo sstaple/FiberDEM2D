@@ -8,7 +8,7 @@ using System.Text;
 using System.Threading.Tasks;
 using DelaunatorSharp;
 
-namespace MicroCluster
+namespace Fiber2DRVEMetrics
 {
     internal class Microstructure
     {
@@ -21,9 +21,9 @@ namespace MicroCluster
         // Vf thershold
         public double[]? Threshold { get; private set; }
         // total number of FC
-        public static int NumFC { get; set; }
+        public int NumFC { get; private set; }
         // total number of MRC
-        public static int NumMRC { get; set; }
+        public int NumMRC { get; private set; }
         // Vf median
         public double VfMdn { get; private set; }
         // Vf IQR
@@ -56,12 +56,12 @@ namespace MicroCluster
         private OutputOptions _outputOptions;  
         #endregion
 
-        public Microstructure(OutputOptions outputOptions, string filePath,string packFileName,string saveDirectory,List<double> y,List<double> z,List<double> r,double yBoundary, double zBoundary) 
+        public Microstructure(OutputOptions outputOptions, string? filePath,string? packFileName,string? saveDirectory,List<double> y,List<double> z,List<double> r,double yBoundary, double zBoundary) 
         {
             // Initalize a bunch of variables
             _outputOptions = outputOptions;
             FilePath = filePath;
-            PackFileName = packFileName;
+            PackFileName = packFileName ?? "RVE";
             SaveDirectory = saveDirectory;
             Y = y;
             Z = z;
@@ -147,7 +147,7 @@ namespace MicroCluster
             .ToArray();
             
             // Paraview Writing Options
-            if (_outputOptions.SaveParaviewFibers)
+            if (_outputOptions.SaveParaviewFibers && SaveDirectory != null)
             {
                 // filename
                 string paraFibers = SaveDirectory + "\\" + BaseName + "_ParaviewFibers.vtu";
@@ -195,7 +195,7 @@ namespace MicroCluster
             AddFC(triangles);
             AddMRC(triangles);
 
-            if (_outputOptions.SaveParaviewClustersAtEveryStep)
+            if (_outputOptions.SaveParaviewClustersAtEveryStep && SaveDirectory != null)
             {
                 // filename
                 string clusterspath = SaveDirectory + "\\" + BaseName + "_Clusters_0.vtu";
@@ -323,7 +323,7 @@ namespace MicroCluster
                 AddMRC(tris);
 
                 // paraview writing
-                if (_outputOptions.SaveParaviewClustersAtEveryStep)
+                if (_outputOptions.SaveParaviewClustersAtEveryStep && SaveDirectory != null)
                 {
                     // filename
                     string clusterspath = SaveDirectory + "\\" + BaseName + $"_Clusters_{i + 1}.vtu";
@@ -351,7 +351,7 @@ namespace MicroCluster
             AddMRC(tris);
 
 
-            if (_outputOptions.SaveParaviewClusters)
+            if (_outputOptions.SaveParaviewClusters && SaveDirectory != null)
             {
                 // filename
                 string finalclusterspath = SaveDirectory + "\\" + BaseName + $"_Final_Clusters.vtu";

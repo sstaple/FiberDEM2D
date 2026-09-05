@@ -4,9 +4,9 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace MicroCluster
+namespace Fiber2DRVEMetrics
 {
-    internal class OutputOptions
+    public class OutputOptions
     {
         public bool SaveParaviewFibers { get; set; } = false;
         public bool SaveParaviewClusters { get; set; } = false;

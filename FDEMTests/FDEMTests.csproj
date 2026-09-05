@@ -20,6 +20,7 @@
     <ProjectReference Include="..\FDEMCore\FDEMCore.csproj" />
     <ProjectReference Include="..\FxTMeshGenerator\FxTMeshGenerator.csproj" />
     <ProjectReference Include="..\FDEMPython\FDEMPython.csproj" />
+    <ProjectReference Include="..\Fiber2DRVEMetrics\Fiber2DRVEMetrics.csproj" />
   </ItemGroup>
 
 </Project>

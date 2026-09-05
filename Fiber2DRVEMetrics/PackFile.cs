@@ -6,7 +6,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Globalization;
 
-namespace MicroCluster
+namespace Fiber2DRVEMetrics
 {
     internal class PackFile
     {
@@ -27,7 +27,8 @@ namespace MicroCluster
         public double YBoundary { get; private set; }
         // Z bound
         public double ZBoundary { get; private set; }
-        public Microstructure? Microstructure { get; private set; }
+        // Computed metrics, populated after Initiate() is called
+        public RVEMetricsResult? Result { get; private set; }
 
         #endregion
 
@@ -48,9 +49,23 @@ namespace MicroCluster
             // Read csv and store data
             ReadCsv();
 
-            // Create the microstructure and start that whole process
-            Microstructure = new Microstructure(outputOptions,FilePath,PackFileName,SaveDirectory,Y,Z,R,YBoundary,ZBoundary);
+            // Adapt the parsed pack-file data into the shared array-based analysis pathway
+            double[,] fiberLocations = new double[Y.Count, 2];
+            for (int i = 0; i < Y.Count; i++)
+            {
+                fiberLocations[i, 0] = Y[i];
+                fiberLocations[i, 1] = Z[i];
+            }
+            double[] fiberRadii = R.ToArray();
+            double[] boundaryDimensions = new double[] { YBoundary, ZBoundary };
 
+            Result = RVEMetricsService.Analyze(
+                fiberLocations,
+                fiberRadii,
+                boundaryDimensions,
+                outputOptions,
+                SaveDirectory,
+                PackFileName);
         }
         
         private void ReadCsv()

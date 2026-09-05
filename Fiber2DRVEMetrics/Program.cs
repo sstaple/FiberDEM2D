@@ -4,9 +4,13 @@ using System.IO;
 using System.Threading.Tasks;
 using System.Diagnostics;
 using System.IO.Enumeration;
+using Fiber2DRVEMetrics;
 
-namespace MicroCluster
+namespace Fiber2DRVEMetrics.ConsoleApp
 {
+    // Interactive console-only entry point for running the pack/CSV pathway from the command line.
+    // This is isolated from the reusable library API (RVEMetricsService, RVEMetricsResult, PackFile)
+    // and is not required when consuming Fiber2DRVEMetrics as a library.
     class Program
     {
         // Creates instance of class that controls output options
@@ -145,14 +149,14 @@ namespace MicroCluster
                 // Start program running
                 packFile.Initiate(outputOptions);
 
-                Microstructure? microstructure = packFile.Microstructure;
+                RVEMetricsResult? result = packFile.Result;
 
 
                 // Append results
                 lock (_csvLock)
                 {
                     File.AppendAllText(outputCsvPath,
-                        $"{fileName},{microstructure.VfMdn}, {microstructure.VfIqr}, {microstructure.FCDensity},{microstructure.MRCDensity},{microstructure.FCNumDensity},{microstructure.MRCNumDensity}\n");
+                        $"{fileName},{result.VfMedian}, {result.VfIqr}, {result.FCAreaDensity},{result.MRCAreaDensity},{result.FCNumberDensity},{result.MRCNumberDensity}\n");
                 }
 
                 // Elapsed time output
